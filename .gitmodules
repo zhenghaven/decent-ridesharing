@@ -1,0 +1,12 @@
+[submodule "libs/tclap"]
+	path = libs/tclap
+	url = https://git.code.sf.net/p/tclap/code
+	branch = master
+[submodule "libs/decent-ra-api"]
+	path = libs/decent-ra-api
+	url = git@github.com:zhenghaven/decent-ra-api.git
+	branch = master
+[submodule "hunter"]
+	path = hunter
+	url = https://github.com/zhenghaven/hunter.git
+	branch = master
