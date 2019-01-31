@@ -360,7 +360,7 @@ foreach(Proj_Name IN ITEMS ${Proj_Name_List})
 	set_target_properties(${Proj_Name}_App PROPERTIES LINK_FLAGS_RELEASE "${APP_RELEASE_LINKER_OPTIONS}")
 
 	target_link_libraries(${Proj_Name}_App 
-						DecentRa_App_Enclave 
+						DecentRa_App_App 
 						${COMMON_STANDARD_LIBRARIES} 
 						IntelSGX::SDK_Untrusted
 						jsoncpp_lib_static 
