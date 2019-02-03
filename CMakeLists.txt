@@ -179,23 +179,8 @@ message(STATUS "")
 include(${CMAKE_CURRENT_LIST_DIR}/libs/decent-ra-api/cmake/FindSgxSdk.cmake)
 
 ##Header only libraries
-# set(CPPCODEC_INCLUDE_DIR ${CMAKE_CURRENT_LIST_DIR}/libs/cppcodec)
-# set(RAPIDJSON_INCLUDE_DIR ${CMAKE_CURRENT_LIST_DIR}/libs/rapidjson/include)
 set(TCLAP_INCLUDE_DIR ${CMAKE_CURRENT_LIST_DIR}/libs/tclap/include)
 
-
-set(COMMON_APP_INCLUDE_DIRS ${TCLAP_INCLUDE_DIR} 
-							 # ${CURL_INCLUDE_DIR} 
-							 # ${CPPCODEC_INCLUDE_DIR} 
-							 # ${MBEDTLS_INCLUDE_DIR} 
-							 # ${RAPIDJSON_INCLUDE_DIR} 
-							 # ${Boost_INCLUDE_DIRS} 
-							 )
-
-# set(COMMON_ENCLAVE_INCLUDE_DIRS ${CPPCODEC_INCLUDE_DIR}
-							 # ${RAPIDJSON_INCLUDE_DIR}
-							 # ${MBEDTLS_INCLUDE_DIR}
-							 # )
 
 # set(DECENT_API_DECENT_SERVER ON CACHE BOOL "Add decent server module." FORCE)
 set(DECENT_API_DECENT_APP ON CACHE BOOL "Add decent app module." FORCE)
@@ -308,8 +293,6 @@ foreach(Proj_Name IN ITEMS ${Proj_Name_List})
 	set(${Proj_Name}_Enclave_Lib "${Enclave_Prog_Prefix}${Proj_Name}_Enclave$<$<CONFIG:Debug>:${CMAKE_DEBUG_POSTFIX}>.${Enclave_Prog_Postfix}")
 
 	add_library(${Proj_Name}_Enclave SHARED ${SOURCES_Common} ${SOURCES_Common_EDL} ${SOURCES_Common_Enc} ${SOURCES_${Proj_Name}_Enc} ${SOURCES_TripPlaner_EDL})
-	#includes:
-	target_include_directories(${Proj_Name}_Enclave BEFORE PRIVATE ${COMMON_ENCLAVE_INCLUDE_DIRS})
 	#defines:
 	target_compile_definitions(${Proj_Name}_Enclave PRIVATE ${COMMON_ENCLAVE_DEFINES})
 	#compiler flags:
@@ -327,21 +310,21 @@ foreach(Proj_Name IN ITEMS ${Proj_Name_List})
 	)
 
 	target_link_libraries(${Proj_Name}_Enclave 
-						DecentRa_App_Enclave 
-						${WHOLE_ARCHIVE_FLAG_BEGIN} 
-						IntelSGX::SDK_Trusted_Whole_lib 
-						${WHOLE_ARCHIVE_FLAG_END}
-						${GROUP_FLAG_BEGIN}
-						IntelSGX::SDK_Trusted_service 
-						IntelSGX::SDK_Trusted_stdc 
-						IntelSGX::SDK_Trusted_cxx 
-						IntelSGX::SDK_Trusted_key_exchange 
-						IntelSGX::SDK_Trusted_crypto 
-						${MBEDCRYPTO_ENCLAVE_LIBRARY} 
-						${MBEDX509_ENCLAVE_LIBRARY} 
-						${MBEDTLS_ENCLAVE_LIBRARY} 
-						${GROUP_FLAG_END}
-						)
+		${WHOLE_ARCHIVE_FLAG_BEGIN} 
+		IntelSGX::SDK_Trusted_Whole_lib 
+		${WHOLE_ARCHIVE_FLAG_END}
+		${GROUP_FLAG_BEGIN}
+		IntelSGX::SDK_Trusted_stdc 
+		IntelSGX::SDK_Trusted_cxx 
+		IntelSGX::SDK_Trusted_service 
+		IntelSGX::SDK_Trusted_key_exchange 
+		IntelSGX::SDK_Trusted_crypto 
+		DecentRa_App_Enclave 
+		mbedcrypto_enclave 
+		mbedx509_enclave 
+		mbedtls_enclave 
+		${GROUP_FLAG_END}
+	)
 
 	add_dependencies(${Proj_Name}_Enclave ${Proj_Name}_EDL)
 
@@ -351,7 +334,7 @@ foreach(Proj_Name IN ITEMS ${Proj_Name_List})
 
 	add_executable(${Proj_Name}_App ${SOURCES_Common} ${SOURCES_Common_EDL} ${SOURCES_Common_App} ${SOURCES_${Proj_Name}_App} ${SOURCES_TripPlaner_EDL})
 	#includes:
-	target_include_directories(${Proj_Name}_App PRIVATE ${COMMON_APP_INCLUDE_DIRS})
+	target_include_directories(${Proj_Name}_App PRIVATE ${TCLAP_INCLUDE_DIR})
 	#defines:
 	target_compile_definitions(${Proj_Name}_App PRIVATE ${COMMON_APP_DEFINES} ENCLAVE_FILENAME="${${Proj_Name}_Enclave_File}" TOKEN_FILENAME="${Proj_Name}_Enclave.token")
 	#linker flags:
@@ -360,16 +343,17 @@ foreach(Proj_Name IN ITEMS ${Proj_Name_List})
 	set_target_properties(${Proj_Name}_App PROPERTIES LINK_FLAGS_RELEASE "${APP_RELEASE_LINKER_OPTIONS}")
 
 	target_link_libraries(${Proj_Name}_App 
-						DecentRa_App_App 
-						${COMMON_STANDARD_LIBRARIES} 
-						IntelSGX::SDK_Untrusted
-						jsoncpp_lib_static 
-						libcurl 
-						${MBEDTLS_LIBRARY} 
-						Boost::filesystem
-						Boost::system
-						${Additional_Sys_Lib}
-					)
+		${COMMON_STANDARD_LIBRARIES} 
+		IntelSGX::SDK_Untrusted
+		DecentRa_App_App 
+		jsoncpp_lib_static 
+		mbedcrypto 
+		mbedx509 
+		mbedtls 
+		Boost::filesystem
+		Boost::system
+		${Additional_Sys_Lib}
+	)
 
 	add_dependencies(${Proj_Name}_App ${Proj_Name}_Enclave)
 endforeach()
