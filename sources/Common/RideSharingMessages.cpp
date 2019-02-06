@@ -6,24 +6,145 @@
 #include <json/json.h>
 #endif
 
-#include <DecentApi/Common/Tools/JsonTools.h>
+#include <mbedtls/md.h>
+#include <mbedtls/x509_crt.h>
+
 #include <DecentApi/Common/Common.h>
+#include <DecentApi/Common/Tools/JsonTools.h>
+#include <DecentApi/Common/Tools/DataCoding.h>
+#include <DecentApi/Common/MbedTls/MbedTlsHelpers.h>
+#include <DecentApi/Common/Ra/Crypto.h>
 
 #include "MessageException.h"
 
 using namespace ComMsg;
 using namespace Decent;
 
+namespace
+{
+	static constexpr int MBEDTLS_SUCCESS_RET = 0;
+
+	template<typename T>
+	static inline T ParseSubObj(const JsonValue& json, const char* label)
+	{
+		if (json.JSON_HAS_MEMBER(label))
+		{
+			return T(json[label]);
+		}
+		throw MessageParseException();
+	}
+
+	struct SignedQuoteCertVerifier
+	{
+		const Decent::Ra::State& m_state;
+		const std::string& m_appName;
+
+		SignedQuoteCertVerifier(const Decent::Ra::State& state, const std::string& appName) :
+			m_state(state),
+			m_appName(appName)
+		{}
+
+		//int VerifyAppCert(const Decent::Ra::AppX509& cert, int depth, uint32_t& flag)
+		//{
+
+		//}
+
+		//int VerifyServerCert(const Decent::Ra::ServerX509& cert, int depth, uint32_t& flag)
+		//{
+		//	//const bool verifyRes = States::Get().GetServerWhiteList().AddTrustedNode(cert);
+		//	//flag = verifyRes ? MBEDTLS_SUCCESS_RET : MBEDTLS_X509_BADCERT_NOT_TRUSTED;
+		//	return MBEDTLS_SUCCESS_RET;
+		//}
+
+		//static int Cb(void *parameter, mbedtls_x509_crt * cert, int depth, uint32_t * flag)
+		//{
+		//	SignedQuoteCertVerifier& verifier = *reinterpret_cast<SignedQuoteCertVerifier*>(parameter);
+
+		//	switch (depth)
+		//	{
+		//	case 0: //App Cert
+		//	{
+		//		const Decent::Ra::AppX509 appCert(cert);
+		//		if (!appCert)
+		//		{
+		//			*flag = MBEDTLS_X509_BADCERT_NOT_TRUSTED;
+		//			return MBEDTLS_SUCCESS_RET;
+		//		}
+
+		//		return verifier.VerifyAppCert(appCert, depth, *flag);
+		//	}
+		//	case 1: //Decent Cert
+		//	{
+		//		const Decent::Ra::ServerX509 serverCert(cert);
+		//		if (!serverCert)
+		//		{
+		//			*flag = MBEDTLS_X509_BADCERT_NOT_TRUSTED;
+		//			return MBEDTLS_SUCCESS_RET;
+		//		}
+
+		//		return verifier.VerifyServerCert(serverCert, depth, *flag);
+		//	}
+		//	default:
+		//		return MBEDTLS_ERR_X509_FATAL_ERROR;
+		//	}
+		//}
+	};
+
+}
+
+int Internal::ParseInt(const JsonValue & json)
+{
+	if (json.JSON_IS_INT())
+	{
+		return json.JSON_AS_INT32();
+	}
+	throw MessageParseException();
+}
+
+double Internal::ParseDouble(const JsonValue & json)
+{
+	if (json.JSON_IS_DOUBLE())
+	{
+		return json.JSON_AS_DOUBLE();
+	}
+	throw MessageParseException();
+}
+
+std::string Internal::ParseString(const JsonValue & json)
+{
+	if (json.JSON_IS_STRING())
+	{
+		return json.JSON_AS_STRING();
+	}
+	throw MessageParseException();
+}
+
+std::string Internal::ParseOpPayment(const JsonValue& json, const char* label)
+{
+	if (json.JSON_HAS_MEMBER(label))
+	{
+		return ParseString(json[label]);
+	}
+	throw MessageParseException();
+}
+
 std::string JsonMsg::ToString() const
 {
-	JSON_EDITION::JSON_DOCUMENT_TYPE doc;
+	JsonDoc doc;
+	ToJson(doc);
+	return Tools::Json2StyledString(doc);
+}
+
+std::string JsonMsg::ToStyledString() const
+{
+	JsonDoc doc;
 	ToJson(doc);
 	return Tools::Json2StyledString(doc);
 }
 
 #define ParseAxisFunc(LABEL, TYPECHECKER, VALUEGETTER) if (json.JSON_HAS_MEMBER(LABEL)) \
 														{ \
-															const JSON_EDITION::Value& jsonAxis = json[LABEL]; \
+															const JsonValue& jsonAxis = json[LABEL]; \
 															if (jsonAxis.TYPECHECKER()) \
 															{ \
 																return jsonAxis.VALUEGETTER(); \
@@ -32,31 +153,31 @@ std::string JsonMsg::ToString() const
 														throw MessageParseException();
 
 template<>
-int Point2D<int>::ParseX(const JSON_EDITION::Value & json)
+int Point2D<int>::ParseX(const JsonValue & json)
 {
 	ParseAxisFunc(Point2D::sk_labelX, JSON_IS_INT, JSON_AS_INT32)
 }
 
 template<>
-double Point2D<double>::ParseX(const JSON_EDITION::Value & json)
+double Point2D<double>::ParseX(const JsonValue & json)
 {
 	ParseAxisFunc(Point2D::sk_labelX, JSON_IS_DOUBLE, JSON_AS_DOUBLE)
 }
 
 template<>
-int Point2D<int>::ParseY(const JSON_EDITION::Value & json)
+int Point2D<int>::ParseY(const JsonValue & json)
 {
 	ParseAxisFunc(Point2D::sk_labelY, JSON_IS_INT, JSON_AS_INT32)
 }
 
 template<>
-double Point2D<double>::ParseY(const JSON_EDITION::Value & json)
+double Point2D<double>::ParseY(const JsonValue & json)
 {
 	ParseAxisFunc(Point2D::sk_labelY, JSON_IS_DOUBLE, JSON_AS_DOUBLE)
 }
 
 template<>
-JSON_EDITION::Value & Point2D<int>::ToJson(JSON_EDITION::JSON_DOCUMENT_TYPE & doc) const
+JsonValue & Point2D<int>::ToJson(JsonDoc & doc) const
 {
 	Tools::JsonSetVal(doc, Point2D::sk_labelX, m_x);
 	Tools::JsonSetVal(doc, Point2D::sk_labelY, m_y);
@@ -64,7 +185,7 @@ JSON_EDITION::Value & Point2D<int>::ToJson(JSON_EDITION::JSON_DOCUMENT_TYPE & do
 }
 
 template<>
-JSON_EDITION::Value & Point2D<double>::ToJson(JSON_EDITION::JSON_DOCUMENT_TYPE & doc) const
+JsonValue & Point2D<double>::ToJson(JsonDoc & doc) const
 {
 	Tools::JsonSetVal(doc, Point2D::sk_labelX, m_x);
 	Tools::JsonSetVal(doc, Point2D::sk_labelY, m_y);
@@ -73,7 +194,7 @@ JSON_EDITION::Value & Point2D<double>::ToJson(JSON_EDITION::JSON_DOCUMENT_TYPE &
 
 constexpr char const GetQuote::sk_labelOrigin[];
 
-Point2D<double> GetQuote::ParseOri(const JSON_EDITION::Value & json)
+Point2D<double> GetQuote::ParseOri(const JsonValue & json)
 {
 	if (json.JSON_HAS_MEMBER(GetQuote::sk_labelOrigin))
 	{
@@ -82,7 +203,7 @@ Point2D<double> GetQuote::ParseOri(const JSON_EDITION::Value & json)
 	throw MessageParseException();
 }
 
-Point2D<double> GetQuote::ParseDest(const JSON_EDITION::Value & json)
+Point2D<double> GetQuote::ParseDest(const JsonValue & json)
 {
 	if (json.JSON_HAS_MEMBER(GetQuote::sk_labelDest))
 	{
@@ -91,10 +212,10 @@ Point2D<double> GetQuote::ParseDest(const JSON_EDITION::Value & json)
 	throw MessageParseException();
 }
 
-JSON_EDITION::Value & GetQuote::ToJson(JSON_EDITION::JSON_DOCUMENT_TYPE & doc) const
+JsonValue & GetQuote::ToJson(JsonDoc & doc) const
 {
-	JSON_EDITION::Value oriRoot = std::move(m_ori.ToJson(doc));
-	JSON_EDITION::Value destRoot = std::move(m_dest.ToJson(doc));
+	JsonValue oriRoot = std::move(m_ori.ToJson(doc));
+	JsonValue destRoot = std::move(m_dest.ToJson(doc));
 
 	Tools::JsonSetVal(doc, GetQuote::sk_labelOrigin, oriRoot);
 	Tools::JsonSetVal(doc, GetQuote::sk_labelDest, destRoot);
@@ -102,12 +223,12 @@ JSON_EDITION::Value & GetQuote::ToJson(JSON_EDITION::JSON_DOCUMENT_TYPE & doc) c
 	return doc;
 }
 
-std::vector<Point2D<double> > Path::ParsePath(const JSON_EDITION::Value & json)
+std::vector<Point2D<double> > Path::ParsePath(const JsonValue & json)
 {
 	std::vector<Point2D<double> > res;
 	if (json.JSON_HAS_MEMBER(Path::sk_labelPath))
 	{
-		const JSON_EDITION::Value& jsonPath = json[Path::sk_labelPath];
+		const JsonValue& jsonPath = json[Path::sk_labelPath];
 		if (jsonPath.JSON_IS_ARRAY())
 		{
 			for (auto it = jsonPath.JSON_ARR_BEGIN(); it != jsonPath.JSON_ARR_END(); ++it)
@@ -120,9 +241,9 @@ std::vector<Point2D<double> > Path::ParsePath(const JSON_EDITION::Value & json)
 	throw MessageParseException();
 }
 
-JSON_EDITION::Value& Path::ToJson(JSON_EDITION::JSON_DOCUMENT_TYPE& doc) const
+JsonValue& Path::ToJson(JsonDoc& doc) const
 {
-	std::vector<JSON_EDITION::Value> pathArr;
+	std::vector<JsonValue> pathArr;
 	pathArr.reserve(m_path.size());
 
 	for (const Point2D<double>& point : m_path)
@@ -130,9 +251,132 @@ JSON_EDITION::Value& Path::ToJson(JSON_EDITION::JSON_DOCUMENT_TYPE& doc) const
 		pathArr.push_back(std::move(point.ToJson(doc)));
 	}
 
-	JSON_EDITION::Value path = std::move(Tools::JsonConstructArray(doc, pathArr));
+	JsonValue path = std::move(Tools::JsonConstructArray(doc, pathArr));
 
 	Tools::JsonSetVal(doc, Path::sk_labelPath, path);
+
+	return doc;
+}
+
+constexpr char const Price::sk_labelPrice[];
+constexpr char const Price::sk_labelOpPayment[];
+
+double Price::ParsePrice(const JsonValue & json)
+{
+	if (json.JSON_HAS_MEMBER(Price::sk_labelPrice))
+	{
+		return Internal::ParseDouble(json[Price::sk_labelPrice]);
+	}
+	throw MessageParseException();
+}
+
+JsonValue& Price::ToJson(JsonDoc& doc) const
+{
+	Tools::JsonSetVal(doc, Price::sk_labelPrice, m_price);
+	Tools::JsonSetVal(doc, Price::sk_labelOpPayment, m_opPayment);
+	return doc;
+}
+
+constexpr char const Quote::sk_labelGetQuote[];
+constexpr char const Quote::sk_labelPath[];
+constexpr char const Quote::sk_labelPrice[];
+constexpr char const Quote::sk_labelOpPayment[];
+
+GetQuote Quote::ParseQuote(const JsonValue& json)
+{
+	return ParseSubObj<GetQuote>(json, Quote::sk_labelGetQuote);
+}
+
+Path Quote::ParsePath(const JsonValue& json)
+{
+	return ParseSubObj<Path>(json, Quote::sk_labelPath);
+}
+
+Price Quote::ParsePrice(const JsonValue& json)
+{
+	return ParseSubObj<Price>(json, Quote::sk_labelPrice);
+}
+
+JsonValue& Quote::ToJson(JsonDoc& doc) const
+{
+	JsonValue getQuote = std::move(m_getQuote.ToJson(doc));
+	JsonValue path = std::move(m_path.ToJson(doc));
+	JsonValue price = std::move(m_price.ToJson(doc));
+
+	Tools::JsonSetVal(doc, Quote::sk_labelGetQuote, getQuote);
+	Tools::JsonSetVal(doc, Quote::sk_labelPath, path);
+	Tools::JsonSetVal(doc, Quote::sk_labelPrice, price);
+	Tools::JsonSetVal(doc, Quote::sk_labelOpPayment, m_opPayment);
+
+	return doc;
+}
+
+constexpr char const SignedQuote::sk_labelQuote[];
+constexpr char const SignedQuote::sk_labelSignature[];
+constexpr char const SignedQuote::sk_labelCert[];
+
+SignedQuote SignedQuote::SignQuote(const Quote& quote, const Decent::MbedTlsObj::ECKeyPair& prvKey, const std::string& certPem)
+{
+	std::string quoteStr = quote.ToString();
+	General256Hash hash;
+	general_secp256r1_signature_t sign;
+	if (!MbedTlsHelper::CalcHashSha256(quoteStr, hash) ||
+		!prvKey ||
+		!prvKey.EcdsaSign(sign, hash, mbedtls_md_info_from_type(mbedtls_md_type_t::MBEDTLS_MD_SHA256)))
+	{
+		throw MessageException();
+	}
+
+	std::string signStr = Tools::SerializeStruct(sign);
+	std::string certPemCopy = certPem;
+
+	return SignedQuote(std::move(quoteStr), std::move(signStr), std::move(certPemCopy));
+}
+
+SignedQuote SignedQuote::ParseSignedQuote(const JsonValue& json, const Decent::Ra::State& state, const std::string& appName)
+{
+	if (!json.JSON_HAS_MEMBER(SignedQuote::sk_labelQuote) ||
+		!json.JSON_HAS_MEMBER(SignedQuote::sk_labelSignature) ||
+		!json.JSON_HAS_MEMBER(SignedQuote::sk_labelCert))
+	{
+		throw MessageParseException();
+	}
+
+	std::string quoteStr = Internal::ParseString(json[SignedQuote::sk_labelQuote]);
+	std::string signStr = Internal::ParseString(json[SignedQuote::sk_labelSignature]);
+	std::string certPem = Internal::ParseString(json[SignedQuote::sk_labelCert]);
+
+	Decent::Ra::AppX509 cert(certPem);
+	SignedQuoteCertVerifier certVerifier(state, appName);
+
+	//uint32_t flag;
+	//if (!cert ||
+	//	mbedtls_x509_crt_verify_with_profile(cert.GetInternalPtr(), nullptr, nullptr,
+	//	&mbedtls_x509_crt_profile_suiteb, nullptr, &flag, &SignedQuoteCertVerifier::Cb, &certVerifier) != MBEDTLS_SUCCESS_RET ||
+	//	flag != MBEDTLS_SUCCESS_RET)
+	//{
+	//	throw MessageParseException();
+	//}
+
+	//general_secp256r1_signature_t sign;
+	//Tools::DeserializeStruct(sign, signStr);
+	//General256Hash hash;
+
+	//if (!MbedTlsHelper::CalcHashSha256(quoteStr, hash) ||
+	//	!cert.GetEcPublicKey() ||
+	//	!cert.GetEcPublicKey().VerifySign(sign, hash.data(), hash.size()))
+	//{
+	//	throw MessageParseException();
+	//}
+
+	return SignedQuote(std::move(quoteStr), std::move(signStr), std::move(certPem));
+}
+
+JsonValue& SignedQuote::ToJson(JsonDoc& doc) const
+{
+	Tools::JsonSetVal(doc, SignedQuote::sk_labelQuote, m_quote);
+	Tools::JsonSetVal(doc, SignedQuote::sk_labelSignature, m_sign);
+	Tools::JsonSetVal(doc, SignedQuote::sk_labelCert, m_cert);
 
 	return doc;
 }
@@ -141,16 +385,21 @@ struct TestStruct
 {
 	TestStruct()
 	{
+		using TestMsgType = Quote;
+
 		LOGI("Json Msg Test:");
 
-		Path testMsg({ Point2D<double>(1.4, 1.3), Point2D<double>(1.2, 1.1) });
+		TestMsgType testMsg(GetQuote(Point2D<double>(1.1, 1.2), Point2D<double>(1.3, 1.4)), 
+			Path({ Point2D<double>(1.1, 1.2), Point2D<double>(1.3, 1.4) }), 
+			Price(100.12, "TestPayment"), 
+			"TestPayment");
 
 		LOGI("1: \n%s", testMsg.ToString().c_str());
 
-		JSON_EDITION::JSON_DOCUMENT_TYPE doc;
+		JsonDoc doc;
 		Tools::ParseStr2Json(doc, testMsg.ToString());
 
-		Path testMsg2(doc);
+		TestMsgType testMsg2(doc);
 
 		LOGI("2: \n%s", testMsg2.ToString().c_str());
 	}
