@@ -55,11 +55,24 @@ namespace ComMsg
 
 	namespace Internal
 	{
-		int ParseInt(const JsonValue & json);
-		int ParseInt(const JsonValue & json, const char* label);
-		double ParseDouble(const JsonValue & json);
-		std::string ParseString(const JsonValue & json);
-		std::string ParseString(const JsonValue & json, const char* label);
+		template<typename T>
+		T ParseValue(const JsonValue & json);
+		template<>
+		int Internal::ParseValue<int>(const JsonValue & json);
+		template<>
+		double Internal::ParseValue<double>(const JsonValue & json);
+		template<>
+		std::string Internal::ParseValue<std::string>(const JsonValue & json);
+
+		template<typename T>
+		T ParseObj(const JsonValue & json, const char* label);
+		template<>
+		int Internal::ParseObj<int>(const JsonValue & json, const char * label);
+		template<>
+		double Internal::ParseObj<double>(const JsonValue & json, const char * label);
+		template<>
+		std::string Internal::ParseObj<std::string>(const JsonValue & json, const char * label);
+
 		std::string ParseOpPayment(const JsonValue& json, const char* label);
 	}
 
@@ -78,12 +91,11 @@ namespace ComMsg
 		static constexpr char const sk_labelX[] = "X";
 		static constexpr char const sk_labelY[] = "Y";
 
-		static T ParseX(const JsonValue& json);
-		static T ParseY(const JsonValue& json);
+		static Point2D<T> Parse(const JsonValue& json, const char* label);
 
 	public:
 		Point2D() = delete;
-		Point2D(const T x, const T y) :
+		Point2D(const T& x, const T& y) :
 			m_x(x),
 			m_y(y)
 		{}
@@ -102,8 +114,8 @@ namespace ComMsg
 		{}
 
 		Point2D(const JsonValue& json) :
-			m_x(ParseX(json)),
-			m_y(ParseY(json))
+			m_x(Internal::ParseObj<T>(json, sk_labelX)),
+			m_y(Internal::ParseObj<T>(json, sk_labelY))
 		{}
 
 		~Point2D() {}
@@ -127,8 +139,7 @@ namespace ComMsg
 		static constexpr char const sk_labelOrigin[] = "Ori";
 		static constexpr char const sk_labelDest[] = "Dest";
 
-		static Point2D<double> ParseOri(const JsonValue& json);
-		static Point2D<double> ParseDest(const JsonValue& json);
+		static GetQuote Parse(const JsonValue& json, const char* label);
 
 	public:
 		GetQuote() = delete;
@@ -151,7 +162,8 @@ namespace ComMsg
 		{}
 
 		GetQuote(const JsonValue& json) :
-			GetQuote(ParseOri(json), ParseDest(json))
+			GetQuote(Point2D<double>::Parse(json, sk_labelOrigin), 
+				Point2D<double>::Parse(json, sk_labelDest))
 		{}
 
 		~GetQuote() {}
@@ -170,6 +182,8 @@ namespace ComMsg
 	{
 	public:
 		static constexpr char const sk_labelPath[] = "Path";
+
+		static Path Parse(const JsonValue& json, const char* label);
 
 		static std::vector<Point2D<double> > ParsePath(const JsonValue& json);
 
@@ -211,7 +225,7 @@ namespace ComMsg
 		static constexpr char const sk_labelPrice[] = "Price";
 		static constexpr char const sk_labelOpPayment[] = "OpPay";
 
-		static double ParsePrice(const JsonValue& json);
+		static Price Parse(const JsonValue& json, const char* label);
 
 	public:
 		Price() = delete;
@@ -234,7 +248,8 @@ namespace ComMsg
 		{}
 
 		Price(const JsonValue& json) :
-			Price(ParsePrice(json), Internal::ParseOpPayment(json, sk_labelOpPayment))
+			Price(Internal::ParseObj<double>(json, sk_labelPrice),
+				Internal::ParseOpPayment(json, sk_labelOpPayment))
 		{}
 
 		~Price() {}
@@ -257,9 +272,7 @@ namespace ComMsg
 		static constexpr char const sk_labelPrice[] = "Price";
 		static constexpr char const sk_labelOpPayment[] = "OpPay";
 
-		static GetQuote ParseQuote(const JsonValue& json);
-		static Path ParsePath(const JsonValue& json);
-		static Price ParsePrice(const JsonValue& json);
+		static Quote Parse(const JsonValue& json, const char* label);
 
 	public:
 		Quote() = delete;
@@ -289,9 +302,9 @@ namespace ComMsg
 		{}
 
 		Quote(const JsonValue& json) :
-			Quote(ParseQuote(json),
-				ParsePath(json),
-				ParsePrice(json),
+			Quote(GetQuote::Parse(json, sk_labelGetQuote),
+				Path::Parse(json, sk_labelPath),
+				Price::Parse(json, sk_labelPrice),
 				Internal::ParseOpPayment(json, sk_labelOpPayment))
 		{}
 
@@ -391,9 +404,9 @@ namespace ComMsg
 		{}
 
 		ConfirmQuote(const JsonValue& json) :
-			ConfirmQuote(Internal::ParseString(json, sk_labelName),
-				Internal::ParseString(json, sk_labelPhone),
-				Internal::ParseString(json, sk_labelSignedQuote))
+			ConfirmQuote(Internal::ParseObj<std::string>(json, sk_labelName),
+				Internal::ParseObj<std::string>(json, sk_labelPhone),
+				Internal::ParseObj<std::string>(json, sk_labelSignedQuote))
 		{}
 
 		~ConfirmQuote() {}
@@ -417,8 +430,6 @@ namespace ComMsg
 		static constexpr char const sk_labelPhone[] = "Phone";
 		static constexpr char const sk_labelQuote[] = "Quote";
 		static constexpr char const sk_labelOpPayment[] = "OpPayment";
-
-		static Quote ParseQuote(const JsonValue& json);
 
 	public:
 		ConfirmedQuote() = delete;
@@ -449,10 +460,10 @@ namespace ComMsg
 		{}
 
 		ConfirmedQuote(const JsonValue& json) :
-			ConfirmedQuote(Internal::ParseString(json, sk_labelName),
-				Internal::ParseString(json, sk_labelPhone),
-				ParseQuote(json),
-				Internal::ParseString(json, sk_labelOpPayment))
+			ConfirmedQuote(Internal::ParseObj<std::string>(json, sk_labelName),
+				Internal::ParseObj<std::string>(json, sk_labelPhone),
+				Quote::Parse(json, sk_labelQuote),
+				Internal::ParseObj<std::string>(json, sk_labelOpPayment))
 		{}
 
 		~ConfirmedQuote() {}
@@ -471,31 +482,80 @@ namespace ComMsg
 		std::string m_opPayment;
 	};
 
+	class TripId : virtual public JsonMsg
+	{
+	public:
+		static constexpr char const sk_labelId[] = "Id";
+
+		static TripId Parse(const JsonValue& json, const char* label);
+
+	public:
+		TripId() = delete;
+
+		TripId(const std::string& id) :
+			m_id(id)
+		{}
+
+		TripId(std::string&& id) :
+			m_id(std::forward<std::string>(id))
+		{}
+
+		TripId(const TripId& rhs) :
+			TripId(rhs.m_id)
+		{}
+
+		TripId(TripId&& rhs) :
+			TripId(std::forward<std::string>(rhs.m_id))
+		{}
+
+		TripId(const JsonValue& json) :
+			TripId(Internal::ParseObj<std::string>(json, sk_labelId))
+		{}
+
+		~TripId() {}
+
+		virtual JsonValue& ToJson(JsonDoc& doc) const override;
+
+		const std::string& GetId() const { return m_id; }
+
+	private:
+		std::string m_id;
+	};
+
 	class TripMatcherAddr : virtual public JsonMsg
 	{
 	public:
 		static constexpr char const sk_labelIp[] = "IP";
 		static constexpr char const sk_labelPort[] = "Port";
+		static constexpr char const sk_labelTripId[] = "TripId";
 
 	public:
 		TripMatcherAddr() = delete;
 
-		TripMatcherAddr(const uint32_t Ip, const uint32_t port) :
+		TripMatcherAddr(const uint32_t Ip, const uint32_t port, const TripId& tripId) :
 			m_ip(Ip),
-			m_port(port)
+			m_port(port),
+			m_tripId(tripId)
+		{}
+
+		TripMatcherAddr(const uint32_t Ip, const uint32_t port, TripId&& tripId) :
+			m_ip(Ip),
+			m_port(port),
+			m_tripId(std::forward<TripId>(tripId))
 		{}
 
 		TripMatcherAddr(const TripMatcherAddr& rhs) :
-			TripMatcherAddr(rhs.m_ip, rhs.m_port)
+			TripMatcherAddr(rhs.m_ip, rhs.m_port, rhs.m_tripId)
 		{}
 
 		TripMatcherAddr(TripMatcherAddr&& rhs) :
-			TripMatcherAddr(rhs.m_ip, rhs.m_port)
+			TripMatcherAddr(rhs.m_ip, rhs.m_port, std::forward<TripId>(rhs.m_tripId))
 		{}
 
 		TripMatcherAddr(const JsonValue& json) :
-			TripMatcherAddr(static_cast<uint32_t>(Internal::ParseInt(json, sk_labelIp)),
-				static_cast<uint16_t>(Internal::ParseInt(json, sk_labelPort)))
+			TripMatcherAddr(static_cast<uint32_t>(Internal::ParseObj<int>(json, sk_labelIp)),
+				static_cast<uint16_t>(Internal::ParseObj<int>(json, sk_labelPort)),
+				TripId::Parse(json, sk_labelTripId))
 		{}
 
 		~TripMatcherAddr() {}
@@ -504,19 +564,19 @@ namespace ComMsg
 
 		uint32_t GetIp() const { return m_ip; }
 		uint16_t GetPort() const { return m_port; }
+		const TripId& GetTripId() const { return m_tripId; }
 
 	private:
 		uint32_t m_ip;
 		uint16_t m_port;
+		TripId m_tripId;
 	};
 
 	class PasQueryLog : virtual public JsonMsg
 	{
 	public:
 		static constexpr char const sk_labelUserId[] = "UserId";
-		static constexpr char const sk_labelGetQuote[] = "Quote";
-
-		static GetQuote ParseGetQuote(const JsonValue& json);
+		static constexpr char const sk_labelGetQuote[] = "GetQuote";
 
 	public:
 		PasQueryLog() = delete;
@@ -541,8 +601,8 @@ namespace ComMsg
 		{}
 
 		PasQueryLog(const JsonValue& json) :
-			PasQueryLog(Internal::ParseString(json, sk_labelUserId),
-				ParseGetQuote(json))
+			PasQueryLog(Internal::ParseObj<std::string>(json, sk_labelUserId),
+				GetQuote::Parse(json, sk_labelGetQuote))
 		{}
 
 		~PasQueryLog() {}
@@ -555,5 +615,42 @@ namespace ComMsg
 	private:
 		std::string m_userId;
 		GetQuote m_getQuote;
+	};
+
+	class DriverLoc : virtual public JsonMsg
+	{
+	public:
+		static constexpr char const sk_labelOrigin[] = "Loc";
+
+	public:
+		DriverLoc() = delete;
+		DriverLoc(const Point2D<double>& loc) :
+			m_loc(loc)
+		{}
+
+		DriverLoc(Point2D<double>&& loc) :
+			m_loc(std::forward<Point2D<double> >(loc))
+		{}
+
+		DriverLoc(const DriverLoc& rhs) :
+			DriverLoc(rhs.m_loc)
+		{}
+
+		DriverLoc(DriverLoc&& rhs) :
+			DriverLoc(std::forward<Point2D<double> >(rhs.m_loc))
+		{}
+
+		DriverLoc(const JsonValue& json) :
+			DriverLoc(Point2D<double>::Parse(json, sk_labelOrigin))
+		{}
+
+		~DriverLoc() {}
+
+		virtual JsonValue& ToJson(JsonDoc& doc) const override;
+
+		const Point2D<double>& GetLoc() { return m_loc; }
+
+	private:
+		Point2D<double> m_loc;
 	};
 }

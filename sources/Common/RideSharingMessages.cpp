@@ -41,7 +41,8 @@ namespace
 
 }
 
-int Internal::ParseInt(const JsonValue & json)
+template<>
+int Internal::ParseValue<int>(const JsonValue & json)
 {
 	if (json.JSON_IS_INT())
 	{
@@ -50,16 +51,8 @@ int Internal::ParseInt(const JsonValue & json)
 	throw MessageParseException();
 }
 
-int Internal::ParseInt(const JsonValue & json, const char * label)
-{
-	if (json.JSON_HAS_MEMBER(label))
-	{
-		return ParseInt(json[label]);
-	}
-	throw MessageParseException();
-}
-
-double Internal::ParseDouble(const JsonValue & json)
+template<>
+double Internal::ParseValue<double>(const JsonValue & json)
 {
 	if (json.JSON_IS_DOUBLE())
 	{
@@ -68,7 +61,8 @@ double Internal::ParseDouble(const JsonValue & json)
 	throw MessageParseException();
 }
 
-std::string Internal::ParseString(const JsonValue & json)
+template<>
+std::string Internal::ParseValue<std::string>(const JsonValue & json)
 {
 	if (json.JSON_IS_STRING())
 	{
@@ -77,18 +71,39 @@ std::string Internal::ParseString(const JsonValue & json)
 	throw MessageParseException();
 }
 
-std::string Internal::ParseString(const JsonValue & json, const char * label)
+template<>
+int Internal::ParseObj<int>(const JsonValue & json, const char * label)
 {
 	if (json.JSON_HAS_MEMBER(label))
 	{
-		return ParseString(json[label]);
+		return Internal::ParseValue<int>(json[label]);
+	}
+	throw MessageParseException();
+}
+
+template<>
+double Internal::ParseObj<double>(const JsonValue & json, const char * label)
+{
+	if (json.JSON_HAS_MEMBER(label))
+	{
+		return Internal::ParseValue<double>(json[label]);
+	}
+	throw MessageParseException();
+}
+
+template<>
+std::string Internal::ParseObj<std::string>(const JsonValue & json, const char * label)
+{
+	if (json.JSON_HAS_MEMBER(label))
+	{
+		return Internal::ParseValue<std::string>(json[label]);
 	}
 	throw MessageParseException();
 }
 
 std::string Internal::ParseOpPayment(const JsonValue& json, const char* label)
 {
-	return Internal::ParseString(json, label);
+	return Internal::ParseObj<std::string>(json, label);
 }
 
 std::string JsonMsg::ToString() const
@@ -105,38 +120,16 @@ std::string JsonMsg::ToStyledString() const
 	return Tools::Json2StyledString(doc);
 }
 
-#define ParseAxisFunc(LABEL, TYPECHECKER, VALUEGETTER) if (json.JSON_HAS_MEMBER(LABEL)) \
-														{ \
-															const JsonValue& jsonAxis = json[LABEL]; \
-															if (jsonAxis.TYPECHECKER()) \
-															{ \
-																return jsonAxis.VALUEGETTER(); \
-															} \
-														} \
-														throw MessageParseException();
-
 template<>
-int Point2D<int>::ParseX(const JsonValue & json)
+Point2D<int> Point2D<int>::Parse(const JsonValue & json, const char * label)
 {
-	ParseAxisFunc(Point2D::sk_labelX, JSON_IS_INT, JSON_AS_INT32)
+	return ParseSubObj<Point2D<int> >(json, label);
 }
 
 template<>
-double Point2D<double>::ParseX(const JsonValue & json)
+Point2D<double> Point2D<double>::Parse(const JsonValue & json, const char * label)
 {
-	ParseAxisFunc(Point2D::sk_labelX, JSON_IS_DOUBLE, JSON_AS_DOUBLE)
-}
-
-template<>
-int Point2D<int>::ParseY(const JsonValue & json)
-{
-	ParseAxisFunc(Point2D::sk_labelY, JSON_IS_INT, JSON_AS_INT32)
-}
-
-template<>
-double Point2D<double>::ParseY(const JsonValue & json)
-{
-	ParseAxisFunc(Point2D::sk_labelY, JSON_IS_DOUBLE, JSON_AS_DOUBLE)
+	return ParseSubObj<Point2D<double> >(json, label);
 }
 
 template<>
@@ -157,22 +150,9 @@ JsonValue & Point2D<double>::ToJson(JsonDoc & doc) const
 
 constexpr char const GetQuote::sk_labelOrigin[];
 
-Point2D<double> GetQuote::ParseOri(const JsonValue & json)
+GetQuote GetQuote::Parse(const JsonValue & json, const char * label)
 {
-	if (json.JSON_HAS_MEMBER(GetQuote::sk_labelOrigin))
-	{
-		return Point2D<double>(json[GetQuote::sk_labelOrigin]);
-	}
-	throw MessageParseException();
-}
-
-Point2D<double> GetQuote::ParseDest(const JsonValue & json)
-{
-	if (json.JSON_HAS_MEMBER(GetQuote::sk_labelDest))
-	{
-		return Point2D<double>(json[GetQuote::sk_labelDest]);
-	}
-	throw MessageParseException();
+	return ParseSubObj<GetQuote>(json, label);
 }
 
 JsonValue & GetQuote::ToJson(JsonDoc & doc) const
@@ -184,6 +164,13 @@ JsonValue & GetQuote::ToJson(JsonDoc & doc) const
 	Tools::JsonSetVal(doc, GetQuote::sk_labelDest, destRoot);
 
 	return doc;
+}
+
+constexpr char const Path::sk_labelPath[];
+
+Path Path::Parse(const JsonValue & json, const char* label)
+{
+	return ParseSubObj<Path>(json, label);
 }
 
 std::vector<Point2D<double> > Path::ParsePath(const JsonValue & json)
@@ -224,13 +211,9 @@ JsonValue& Path::ToJson(JsonDoc& doc) const
 constexpr char const Price::sk_labelPrice[];
 constexpr char const Price::sk_labelOpPayment[];
 
-double Price::ParsePrice(const JsonValue & json)
+Price Price::Parse(const JsonValue & json, const char * label)
 {
-	if (json.JSON_HAS_MEMBER(Price::sk_labelPrice))
-	{
-		return Internal::ParseDouble(json[Price::sk_labelPrice]);
-	}
-	throw MessageParseException();
+	return ParseSubObj<Price>(json, label);
 }
 
 JsonValue& Price::ToJson(JsonDoc& doc) const
@@ -245,19 +228,9 @@ constexpr char const Quote::sk_labelPath[];
 constexpr char const Quote::sk_labelPrice[];
 constexpr char const Quote::sk_labelOpPayment[];
 
-GetQuote Quote::ParseQuote(const JsonValue& json)
+Quote Quote::Parse(const JsonValue & json, const char * label)
 {
-	return ParseSubObj<GetQuote>(json, Quote::sk_labelGetQuote);
-}
-
-Path Quote::ParsePath(const JsonValue& json)
-{
-	return ParseSubObj<Path>(json, Quote::sk_labelPath);
-}
-
-Price Quote::ParsePrice(const JsonValue& json)
-{
-	return ParseSubObj<Price>(json, Quote::sk_labelPrice);
+	return ParseSubObj<Quote>(json, label);
 }
 
 JsonValue& Quote::ToJson(JsonDoc& doc) const
@@ -311,9 +284,9 @@ SignedQuote SignedQuote::ParseSignedQuote(const JsonValue& json, Decent::Ra::Sta
 		throw MessageParseException();
 	}
 
-	std::string quoteStr = Internal::ParseString(json[SignedQuote::sk_labelQuote]);
-	std::string signStr = Internal::ParseString(json[SignedQuote::sk_labelSignature]);
-	std::string certPem = Internal::ParseString(json[SignedQuote::sk_labelCert]);
+	std::string quoteStr = Internal::ParseValue<std::string>(json[SignedQuote::sk_labelQuote]);
+	std::string signStr = Internal::ParseValue<std::string>(json[SignedQuote::sk_labelSignature]);
+	std::string certPem = Internal::ParseValue<std::string>(json[SignedQuote::sk_labelCert]);
 
 	AppX509 cert(certPem);
 	TlsConfig tlsCfg(appName, state, true);
@@ -368,11 +341,6 @@ constexpr char const ConfirmedQuote::sk_labelPhone[];
 constexpr char const ConfirmedQuote::sk_labelQuote[];
 constexpr char const ConfirmedQuote::sk_labelOpPayment[];
 
-Quote ConfirmedQuote::ParseQuote(const JsonValue & json)
-{
-	return ParseSubObj<Quote>(json, ConfirmedQuote::sk_labelQuote);
-}
-
 JsonValue & ConfirmedQuote::ToJson(JsonDoc & doc) const
 {
 	JsonValue quote = std::move(m_quote.ToJson(doc));
@@ -385,8 +353,23 @@ JsonValue & ConfirmedQuote::ToJson(JsonDoc & doc) const
 	return doc;
 }
 
+constexpr char const TripId::sk_labelId[];
+
+TripId TripId::Parse(const JsonValue & json, const char * label)
+{
+	return ParseSubObj<TripId>(json, label);
+}
+
+JsonValue & TripId::ToJson(JsonDoc & doc) const
+{
+	Tools::JsonSetVal(doc, TripId::sk_labelId, m_id);
+
+	return doc;
+}
+
 constexpr char const TripMatcherAddr::sk_labelIp[];
 constexpr char const TripMatcherAddr::sk_labelPort[];
+constexpr char const TripMatcherAddr::sk_labelTripId[];
 
 JsonValue & TripMatcherAddr::ToJson(JsonDoc & doc) const
 {
@@ -399,17 +382,23 @@ JsonValue & TripMatcherAddr::ToJson(JsonDoc & doc) const
 constexpr char const PasQueryLog::sk_labelUserId[];
 constexpr char const PasQueryLog::sk_labelGetQuote[];
 
-GetQuote PasQueryLog::ParseGetQuote(const JsonValue & json)
-{
-	return ParseSubObj<GetQuote>(json, PasQueryLog::sk_labelGetQuote);
-}
-
 JsonValue & PasQueryLog::ToJson(JsonDoc & doc) const
 {
 	JsonValue getQuote = std::move(m_getQuote.ToJson(doc));
 
 	Tools::JsonSetVal(doc, PasQueryLog::sk_labelUserId, m_userId);
 	Tools::JsonSetVal(doc, PasQueryLog::sk_labelGetQuote, getQuote);
+
+	return doc;
+}
+
+constexpr char const DriverLoc::sk_labelOrigin[];
+
+JsonValue & DriverLoc::ToJson(JsonDoc & doc) const
+{
+	JsonValue loc = std::move(m_loc.ToJson(doc));
+
+	Tools::JsonSetVal(doc, DriverLoc::sk_labelOrigin, loc);
 
 	return doc;
 }
