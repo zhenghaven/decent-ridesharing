@@ -50,6 +50,15 @@ int Internal::ParseInt(const JsonValue & json)
 	throw MessageParseException();
 }
 
+int Internal::ParseInt(const JsonValue & json, const char * label)
+{
+	if (json.JSON_HAS_MEMBER(label))
+	{
+		return ParseInt(json[label]);
+	}
+	throw MessageParseException();
+}
+
 double Internal::ParseDouble(const JsonValue & json)
 {
 	if (json.JSON_IS_DOUBLE())
@@ -68,13 +77,18 @@ std::string Internal::ParseString(const JsonValue & json)
 	throw MessageParseException();
 }
 
-std::string Internal::ParseOpPayment(const JsonValue& json, const char* label)
+std::string Internal::ParseString(const JsonValue & json, const char * label)
 {
 	if (json.JSON_HAS_MEMBER(label))
 	{
 		return ParseString(json[label]);
 	}
 	throw MessageParseException();
+}
+
+std::string Internal::ParseOpPayment(const JsonValue& json, const char* label)
+{
+	return Internal::ParseString(json, label);
 }
 
 std::string JsonMsg::ToString() const
@@ -332,6 +346,70 @@ JsonValue& SignedQuote::ToJson(JsonDoc& doc) const
 	Tools::JsonSetVal(doc, SignedQuote::sk_labelQuote, m_quote);
 	Tools::JsonSetVal(doc, SignedQuote::sk_labelSignature, m_sign);
 	Tools::JsonSetVal(doc, SignedQuote::sk_labelCert, m_cert);
+
+	return doc;
+}
+
+constexpr char const ConfirmQuote::sk_labelName[];
+constexpr char const ConfirmQuote::sk_labelPhone[];
+constexpr char const ConfirmQuote::sk_labelSignedQuote[];
+
+JsonValue & ConfirmQuote::ToJson(JsonDoc & doc) const
+{
+	Tools::JsonSetVal(doc, ConfirmQuote::sk_labelName, m_name);
+	Tools::JsonSetVal(doc, ConfirmQuote::sk_labelPhone, m_phone);
+	Tools::JsonSetVal(doc, ConfirmQuote::sk_labelSignedQuote, m_signQuote);
+
+	return doc;
+}
+
+constexpr char const ConfirmedQuote::sk_labelName[];
+constexpr char const ConfirmedQuote::sk_labelPhone[];
+constexpr char const ConfirmedQuote::sk_labelQuote[];
+constexpr char const ConfirmedQuote::sk_labelOpPayment[];
+
+Quote ConfirmedQuote::ParseQuote(const JsonValue & json)
+{
+	return ParseSubObj<Quote>(json, ConfirmedQuote::sk_labelQuote);
+}
+
+JsonValue & ConfirmedQuote::ToJson(JsonDoc & doc) const
+{
+	JsonValue quote = std::move(m_quote.ToJson(doc));
+
+	Tools::JsonSetVal(doc, ConfirmedQuote::sk_labelName, m_name);
+	Tools::JsonSetVal(doc, ConfirmedQuote::sk_labelPhone, m_phone);
+	Tools::JsonSetVal(doc, ConfirmedQuote::sk_labelQuote, quote);
+	Tools::JsonSetVal(doc, ConfirmedQuote::sk_labelOpPayment, m_opPayment);
+
+	return doc;
+}
+
+constexpr char const TripMatcherAddr::sk_labelIp[];
+constexpr char const TripMatcherAddr::sk_labelPort[];
+
+JsonValue & TripMatcherAddr::ToJson(JsonDoc & doc) const
+{
+	Tools::JsonSetVal(doc, TripMatcherAddr::sk_labelIp, static_cast<int>(m_ip));
+	Tools::JsonSetVal(doc, TripMatcherAddr::sk_labelPort, static_cast<int>(m_port));
+
+	return doc;
+}
+
+constexpr char const PasQueryLog::sk_labelUserId[];
+constexpr char const PasQueryLog::sk_labelGetQuote[];
+
+GetQuote PasQueryLog::ParseGetQuote(const JsonValue & json)
+{
+	return ParseSubObj<GetQuote>(json, PasQueryLog::sk_labelGetQuote);
+}
+
+JsonValue & PasQueryLog::ToJson(JsonDoc & doc) const
+{
+	JsonValue getQuote = std::move(m_getQuote.ToJson(doc));
+
+	Tools::JsonSetVal(doc, PasQueryLog::sk_labelUserId, m_userId);
+	Tools::JsonSetVal(doc, PasQueryLog::sk_labelGetQuote, getQuote);
 
 	return doc;
 }

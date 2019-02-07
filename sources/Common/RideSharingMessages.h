@@ -56,8 +56,10 @@ namespace ComMsg
 	namespace Internal
 	{
 		int ParseInt(const JsonValue & json);
+		int ParseInt(const JsonValue & json, const char* label);
 		double ParseDouble(const JsonValue & json);
 		std::string ParseString(const JsonValue & json);
+		std::string ParseString(const JsonValue & json, const char* label);
 		std::string ParseOpPayment(const JsonValue& json, const char* label);
 	}
 
@@ -354,5 +356,204 @@ namespace ComMsg
 		std::string m_quote;
 		std::string m_sign;
 		std::string m_cert;
+	};
+
+	class ConfirmQuote : virtual public JsonMsg
+	{
+	public:
+		static constexpr char const sk_labelName[] = "Name";
+		static constexpr char const sk_labelPhone[] = "Phone";
+		static constexpr char const sk_labelSignedQuote[] = "SgQuote";
+
+	public:
+		ConfirmQuote() = delete;
+
+		ConfirmQuote(const std::string& name, const std::string& phone, const std::string& signQuote) :
+			m_name(name),
+			m_phone(phone),
+			m_signQuote(signQuote)
+		{}
+
+		ConfirmQuote(std::string&& name, std::string&& phone, std::string&& signQuote) :
+			m_name(std::forward<std::string>(name)),
+			m_phone(std::forward<std::string>(phone)),
+			m_signQuote(std::forward<std::string>(signQuote))
+		{}
+
+		ConfirmQuote(const ConfirmQuote& rhs) :
+			ConfirmQuote(rhs.m_name, rhs.m_phone, rhs.m_signQuote)
+		{}
+
+		ConfirmQuote(ConfirmQuote&& rhs) :
+			ConfirmQuote(std::forward<std::string>(rhs.m_name),
+				std::forward<std::string>(rhs.m_phone),
+				std::forward<std::string>(rhs.m_signQuote))
+		{}
+
+		ConfirmQuote(const JsonValue& json) :
+			ConfirmQuote(Internal::ParseString(json, sk_labelName),
+				Internal::ParseString(json, sk_labelPhone),
+				Internal::ParseString(json, sk_labelSignedQuote))
+		{}
+
+		~ConfirmQuote() {}
+
+		virtual JsonValue& ToJson(JsonDoc& doc) const override;
+
+		const std::string& GetName() const { return m_name; }
+		const std::string& GetPhone() const { return m_phone; }
+		const std::string& GetSignQuote() const { return m_signQuote; }
+
+	private:
+		std::string m_name;
+		std::string m_phone;
+		std::string m_signQuote;
+	};
+
+	class ConfirmedQuote : virtual public JsonMsg
+	{
+	public:
+		static constexpr char const sk_labelName[] = "Name";
+		static constexpr char const sk_labelPhone[] = "Phone";
+		static constexpr char const sk_labelQuote[] = "Quote";
+		static constexpr char const sk_labelOpPayment[] = "OpPayment";
+
+		static Quote ParseQuote(const JsonValue& json);
+
+	public:
+		ConfirmedQuote() = delete;
+
+		ConfirmedQuote(const std::string& name, const std::string& phone, const Quote& quote, const std::string& opPayment) :
+			m_name(name),
+			m_phone(phone),
+			m_quote(quote),
+			m_opPayment(opPayment)
+		{}
+
+		ConfirmedQuote(std::string&& name, std::string&& phone, Quote&& quote, std::string&& opPayment) :
+			m_name(std::forward<std::string>(name)),
+			m_phone(std::forward<std::string>(phone)),
+			m_quote(std::forward<Quote>(quote)),
+			m_opPayment(std::forward<std::string>(opPayment))
+		{}
+
+		ConfirmedQuote(const ConfirmedQuote& rhs) :
+			ConfirmedQuote(rhs.m_name, rhs.m_phone, rhs.m_quote, rhs.m_opPayment)
+		{}
+
+		ConfirmedQuote(ConfirmedQuote&& rhs) :
+			ConfirmedQuote(std::forward<std::string>(rhs.m_name),
+				std::forward<std::string>(rhs.m_phone),
+				std::forward<Quote>(rhs.m_quote),
+				std::forward<std::string>(rhs.m_opPayment))
+		{}
+
+		ConfirmedQuote(const JsonValue& json) :
+			ConfirmedQuote(Internal::ParseString(json, sk_labelName),
+				Internal::ParseString(json, sk_labelPhone),
+				ParseQuote(json),
+				Internal::ParseString(json, sk_labelOpPayment))
+		{}
+
+		~ConfirmedQuote() {}
+
+		virtual JsonValue& ToJson(JsonDoc& doc) const override;
+
+		const std::string& GetName() const { return m_name; }
+		const std::string& GetPhone() const { return m_phone; }
+		const Quote& GetSignQuote() const { return m_quote; }
+		const std::string& GetOpPayment() const { return m_opPayment; }
+
+	private:
+		std::string m_name;
+		std::string m_phone;
+		Quote m_quote;
+		std::string m_opPayment;
+	};
+
+	class TripMatcherAddr : virtual public JsonMsg
+	{
+	public:
+		static constexpr char const sk_labelIp[] = "IP";
+		static constexpr char const sk_labelPort[] = "Port";
+
+	public:
+		TripMatcherAddr() = delete;
+
+		TripMatcherAddr(const uint32_t Ip, const uint32_t port) :
+			m_ip(Ip),
+			m_port(port)
+		{}
+
+		TripMatcherAddr(const TripMatcherAddr& rhs) :
+			TripMatcherAddr(rhs.m_ip, rhs.m_port)
+		{}
+
+		TripMatcherAddr(TripMatcherAddr&& rhs) :
+			TripMatcherAddr(rhs.m_ip, rhs.m_port)
+		{}
+
+		TripMatcherAddr(const JsonValue& json) :
+			TripMatcherAddr(static_cast<uint32_t>(Internal::ParseInt(json, sk_labelIp)),
+				static_cast<uint16_t>(Internal::ParseInt(json, sk_labelPort)))
+		{}
+
+		~TripMatcherAddr() {}
+
+		virtual JsonValue& ToJson(JsonDoc& doc) const override;
+
+		uint32_t GetIp() const { return m_ip; }
+		uint16_t GetPort() const { return m_port; }
+
+	private:
+		uint32_t m_ip;
+		uint16_t m_port;
+	};
+
+	class PasQueryLog : virtual public JsonMsg
+	{
+	public:
+		static constexpr char const sk_labelUserId[] = "UserId";
+		static constexpr char const sk_labelGetQuote[] = "Quote";
+
+		static GetQuote ParseGetQuote(const JsonValue& json);
+
+	public:
+		PasQueryLog() = delete;
+
+		PasQueryLog(const std::string& userId, const GetQuote& getQuote) :
+			m_userId(userId),
+			m_getQuote(getQuote)
+		{}
+
+		PasQueryLog(std::string&& userId, GetQuote&& getQuote) :
+			m_userId(std::forward<std::string>(userId)),
+			m_getQuote(std::forward<GetQuote>(getQuote))
+		{}
+
+		PasQueryLog(const PasQueryLog& rhs) :
+			PasQueryLog(rhs.m_userId, rhs.m_getQuote)
+		{}
+
+		PasQueryLog(PasQueryLog&& rhs) :
+			PasQueryLog(std::forward<std::string>(rhs.m_userId),
+				std::forward<GetQuote>(rhs.m_getQuote))
+		{}
+
+		PasQueryLog(const JsonValue& json) :
+			PasQueryLog(Internal::ParseString(json, sk_labelUserId),
+				ParseGetQuote(json))
+		{}
+
+		~PasQueryLog() {}
+
+		virtual JsonValue& ToJson(JsonDoc& doc) const override;
+
+		const std::string& GetUserId() const { return m_userId; }
+		const GetQuote& GetGetQuote() const { return m_getQuote; }
+
+	private:
+		std::string m_userId;
+		GetQuote m_getQuote;
 	};
 }
