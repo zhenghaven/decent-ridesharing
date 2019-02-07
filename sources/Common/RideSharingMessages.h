@@ -38,7 +38,7 @@ namespace Decent
 	}
 	namespace Ra
 	{
-		class State;
+		class States;
 	}
 }
 
@@ -316,8 +316,8 @@ namespace ComMsg
 		static constexpr char const sk_labelSignature[] = "Sign";
 		static constexpr char const sk_labelCert[] = "Cert";
 
-		static SignedQuote SignQuote(const Quote& quote, const Decent::MbedTlsObj::ECKeyPair& prvKey, const std::string& certPem);
-		static SignedQuote ParseSignedQuote(const JsonValue& json, const Decent::Ra::State& state, const std::string& appName);
+		static SignedQuote SignQuote(const Quote& quote, Decent::Ra::States& state);
+		static SignedQuote ParseSignedQuote(const JsonValue& json, Decent::Ra::States& state, const std::string& appName);
 
 	public:
 		SignedQuote() = delete;

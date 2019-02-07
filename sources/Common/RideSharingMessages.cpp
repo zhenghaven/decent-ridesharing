@@ -14,11 +14,16 @@
 #include <DecentApi/Common/Tools/DataCoding.h>
 #include <DecentApi/Common/MbedTls/MbedTlsHelpers.h>
 #include <DecentApi/Common/Ra/Crypto.h>
+#include <DecentApi/Common/Ra/TlsConfig.h>
+#include <DecentApi/Common/Ra/States.h>
+#include <DecentApi/Common/Ra/KeyContainer.h>
+#include <DecentApi/Common/Ra/CertContainer.h>
 
 #include "MessageException.h"
 
 using namespace ComMsg;
 using namespace Decent;
+using namespace Decent::Ra;
 
 namespace
 {
@@ -33,62 +38,6 @@ namespace
 		}
 		throw MessageParseException();
 	}
-
-	struct SignedQuoteCertVerifier
-	{
-		const Decent::Ra::State& m_state;
-		const std::string& m_appName;
-
-		SignedQuoteCertVerifier(const Decent::Ra::State& state, const std::string& appName) :
-			m_state(state),
-			m_appName(appName)
-		{}
-
-		//int VerifyAppCert(const Decent::Ra::AppX509& cert, int depth, uint32_t& flag)
-		//{
-
-		//}
-
-		//int VerifyServerCert(const Decent::Ra::ServerX509& cert, int depth, uint32_t& flag)
-		//{
-		//	//const bool verifyRes = States::Get().GetServerWhiteList().AddTrustedNode(cert);
-		//	//flag = verifyRes ? MBEDTLS_SUCCESS_RET : MBEDTLS_X509_BADCERT_NOT_TRUSTED;
-		//	return MBEDTLS_SUCCESS_RET;
-		//}
-
-		//static int Cb(void *parameter, mbedtls_x509_crt * cert, int depth, uint32_t * flag)
-		//{
-		//	SignedQuoteCertVerifier& verifier = *reinterpret_cast<SignedQuoteCertVerifier*>(parameter);
-
-		//	switch (depth)
-		//	{
-		//	case 0: //App Cert
-		//	{
-		//		const Decent::Ra::AppX509 appCert(cert);
-		//		if (!appCert)
-		//		{
-		//			*flag = MBEDTLS_X509_BADCERT_NOT_TRUSTED;
-		//			return MBEDTLS_SUCCESS_RET;
-		//		}
-
-		//		return verifier.VerifyAppCert(appCert, depth, *flag);
-		//	}
-		//	case 1: //Decent Cert
-		//	{
-		//		const Decent::Ra::ServerX509 serverCert(cert);
-		//		if (!serverCert)
-		//		{
-		//			*flag = MBEDTLS_X509_BADCERT_NOT_TRUSTED;
-		//			return MBEDTLS_SUCCESS_RET;
-		//		}
-
-		//		return verifier.VerifyServerCert(serverCert, depth, *flag);
-		//	}
-		//	default:
-		//		return MBEDTLS_ERR_X509_FATAL_ERROR;
-		//	}
-		//}
-	};
 
 }
 
@@ -315,12 +264,18 @@ constexpr char const SignedQuote::sk_labelQuote[];
 constexpr char const SignedQuote::sk_labelSignature[];
 constexpr char const SignedQuote::sk_labelCert[];
 
-SignedQuote SignedQuote::SignQuote(const Quote& quote, const Decent::MbedTlsObj::ECKeyPair& prvKey, const std::string& certPem)
+SignedQuote SignedQuote::SignQuote(const Quote& quote, Decent::Ra::States& state)
 {
+	const std::shared_ptr<const Decent::MbedTlsObj::ECKeyPair> prvKeyPtr = state.GetKeyContainer().GetSignKeyPair();
+	const Decent::MbedTlsObj::ECKeyPair& prvKey = *prvKeyPtr;
+	const std::shared_ptr<const Decent::MbedTlsObj::X509Cert> certPtr = state.GetCertContainer().GetCert();
+	const Decent::MbedTlsObj::X509Cert& cert = *certPtr;
+
 	std::string quoteStr = quote.ToString();
 	General256Hash hash;
 	general_secp256r1_signature_t sign;
-	if (!MbedTlsHelper::CalcHashSha256(quoteStr, hash) ||
+	if (!cert ||
+		!MbedTlsHelper::CalcHashSha256(quoteStr, hash) ||
 		!prvKey ||
 		!prvKey.EcdsaSign(sign, hash, mbedtls_md_info_from_type(mbedtls_md_type_t::MBEDTLS_MD_SHA256)))
 	{
@@ -328,12 +283,12 @@ SignedQuote SignedQuote::SignQuote(const Quote& quote, const Decent::MbedTlsObj:
 	}
 
 	std::string signStr = Tools::SerializeStruct(sign);
-	std::string certPemCopy = certPem;
+	std::string certPemCopy = cert.ToPemString();
 
 	return SignedQuote(std::move(quoteStr), std::move(signStr), std::move(certPemCopy));
 }
 
-SignedQuote SignedQuote::ParseSignedQuote(const JsonValue& json, const Decent::Ra::State& state, const std::string& appName)
+SignedQuote SignedQuote::ParseSignedQuote(const JsonValue& json, Decent::Ra::States& state, const std::string& appName)
 {
 	if (!json.JSON_HAS_MEMBER(SignedQuote::sk_labelQuote) ||
 		!json.JSON_HAS_MEMBER(SignedQuote::sk_labelSignature) ||
@@ -346,28 +301,28 @@ SignedQuote SignedQuote::ParseSignedQuote(const JsonValue& json, const Decent::R
 	std::string signStr = Internal::ParseString(json[SignedQuote::sk_labelSignature]);
 	std::string certPem = Internal::ParseString(json[SignedQuote::sk_labelCert]);
 
-	Decent::Ra::AppX509 cert(certPem);
-	SignedQuoteCertVerifier certVerifier(state, appName);
+	AppX509 cert(certPem);
+	TlsConfig tlsCfg(appName, state, true);
 
-	//uint32_t flag;
-	//if (!cert ||
-	//	mbedtls_x509_crt_verify_with_profile(cert.GetInternalPtr(), nullptr, nullptr,
-	//	&mbedtls_x509_crt_profile_suiteb, nullptr, &flag, &SignedQuoteCertVerifier::Cb, &certVerifier) != MBEDTLS_SUCCESS_RET ||
-	//	flag != MBEDTLS_SUCCESS_RET)
-	//{
-	//	throw MessageParseException();
-	//}
+	uint32_t flag;
+	if (!cert ||
+		mbedtls_x509_crt_verify_with_profile(cert.Get(), nullptr, nullptr,
+		&mbedtls_x509_crt_profile_suiteb, nullptr, &flag, &TlsConfig::CertVerifyCallBack, &tlsCfg) != MBEDTLS_SUCCESS_RET ||
+		flag != MBEDTLS_SUCCESS_RET)
+	{
+		throw MessageParseException();
+	}
 
-	//general_secp256r1_signature_t sign;
-	//Tools::DeserializeStruct(sign, signStr);
-	//General256Hash hash;
+	general_secp256r1_signature_t sign;
+	Tools::DeserializeStruct(sign, signStr);
+	General256Hash hash;
 
-	//if (!MbedTlsHelper::CalcHashSha256(quoteStr, hash) ||
-	//	!cert.GetEcPublicKey() ||
-	//	!cert.GetEcPublicKey().VerifySign(sign, hash.data(), hash.size()))
-	//{
-	//	throw MessageParseException();
-	//}
+	if (!MbedTlsHelper::CalcHashSha256(quoteStr, hash) ||
+		!cert.GetEcPublicKey() ||
+		!cert.GetEcPublicKey().VerifySign(sign, hash.data(), hash.size()))
+	{
+		throw MessageParseException();
+	}
 
 	return SignedQuote(std::move(quoteStr), std::move(signStr), std::move(certPem));
 }
