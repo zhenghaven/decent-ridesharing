@@ -371,41 +371,83 @@ namespace ComMsg
 		std::string m_cert;
 	};
 
-	class ConfirmQuote : virtual public JsonMsg
+	class PasContact : virtual public JsonMsg
 	{
 	public:
 		static constexpr char const sk_labelName[] = "Name";
 		static constexpr char const sk_labelPhone[] = "Phone";
+
+		static PasContact Parse(const JsonValue& json, const char* label);
+
+	public:
+		PasContact() = delete;
+
+		PasContact(const std::string& name, const std::string& phone) :
+			m_name(name),
+			m_phone(phone)
+		{}
+
+		PasContact(std::string&& name, std::string&& phone) :
+			m_name(std::forward<std::string>(name)),
+			m_phone(std::forward<std::string>(phone))
+		{}
+
+		PasContact(const PasContact& rhs) :
+			PasContact(rhs.m_name, rhs.m_phone)
+		{}
+
+		PasContact(PasContact&& rhs) :
+			PasContact(std::forward<std::string>(rhs.m_name),
+				std::forward<std::string>(rhs.m_phone))
+		{}
+
+		PasContact(const JsonValue& json) :
+			PasContact(Internal::ParseObj<std::string>(json, sk_labelName),
+				Internal::ParseObj<std::string>(json, sk_labelPhone))
+		{}
+
+		~PasContact() {}
+
+		virtual JsonValue& ToJson(JsonDoc& doc) const override;
+
+		const std::string& GetName() const { return m_name; }
+		const std::string& GetPhone() const { return m_phone; }
+
+	private:
+		std::string m_name;
+		std::string m_phone;
+	};
+
+	class ConfirmQuote : virtual public JsonMsg
+	{
+	public:
+		static constexpr char const sk_labelPasContact[] = "Contact";
 		static constexpr char const sk_labelSignedQuote[] = "SgQuote";
 
 	public:
 		ConfirmQuote() = delete;
 
-		ConfirmQuote(const std::string& name, const std::string& phone, const std::string& signQuote) :
-			m_name(name),
-			m_phone(phone),
+		ConfirmQuote(const PasContact& name, const std::string& signQuote) :
+			m_contact(name),
 			m_signQuote(signQuote)
 		{}
 
-		ConfirmQuote(std::string&& name, std::string&& phone, std::string&& signQuote) :
-			m_name(std::forward<std::string>(name)),
-			m_phone(std::forward<std::string>(phone)),
+		ConfirmQuote(PasContact&& name, std::string&& signQuote) :
+			m_contact(std::forward<PasContact>(name)),
 			m_signQuote(std::forward<std::string>(signQuote))
 		{}
 
 		ConfirmQuote(const ConfirmQuote& rhs) :
-			ConfirmQuote(rhs.m_name, rhs.m_phone, rhs.m_signQuote)
+			ConfirmQuote(rhs.m_contact, rhs.m_signQuote)
 		{}
 
 		ConfirmQuote(ConfirmQuote&& rhs) :
-			ConfirmQuote(std::forward<std::string>(rhs.m_name),
-				std::forward<std::string>(rhs.m_phone),
+			ConfirmQuote(std::forward<PasContact>(rhs.m_contact),
 				std::forward<std::string>(rhs.m_signQuote))
 		{}
 
 		ConfirmQuote(const JsonValue& json) :
-			ConfirmQuote(Internal::ParseObj<std::string>(json, sk_labelName),
-				Internal::ParseObj<std::string>(json, sk_labelPhone),
+			ConfirmQuote(PasContact::Parse(json, sk_labelPasContact),
 				Internal::ParseObj<std::string>(json, sk_labelSignedQuote))
 		{}
 
@@ -413,13 +455,11 @@ namespace ComMsg
 
 		virtual JsonValue& ToJson(JsonDoc& doc) const override;
 
-		const std::string& GetName() const { return m_name; }
-		const std::string& GetPhone() const { return m_phone; }
+		const PasContact& GetName() const { return m_contact; }
 		const std::string& GetSignQuote() const { return m_signQuote; }
 
 	private:
-		std::string m_name;
-		std::string m_phone;
+		PasContact m_contact;
 		std::string m_signQuote;
 	};
 
@@ -652,5 +692,178 @@ namespace ComMsg
 
 	private:
 		Point2D<double> m_loc;
+	};
+
+	class MatchItem : virtual public JsonMsg
+	{
+	public:
+		static constexpr char const sk_labelTripId[] = "Id";
+		static constexpr char const sk_labelPath[] = "Path";
+
+	public:
+		MatchItem() = delete;
+		MatchItem(const std::string& tripId, const Path& path) :
+			m_tripId(tripId),
+			m_path(path)
+		{}
+
+		MatchItem(std::string&& tripId, Path&& path) :
+			m_tripId(std::forward<std::string>(tripId)),
+			m_path(std::forward<Path>(path))
+		{}
+
+		MatchItem(const MatchItem& rhs) :
+			MatchItem(rhs.m_tripId, rhs.m_path)
+		{}
+
+		MatchItem(MatchItem&& rhs) :
+			MatchItem(std::forward<std::string>(rhs.m_tripId),
+				std::forward<Path>(rhs.m_path))
+		{}
+
+		MatchItem(const JsonValue& json) :
+			MatchItem(Internal::ParseObj<std::string>(json, sk_labelTripId),
+				Path::Parse(json, sk_labelPath))
+		{}
+
+		~MatchItem() {}
+
+		virtual JsonValue& ToJson(JsonDoc& doc) const override;
+
+		const std::string& GetTripId() { return m_tripId; }
+		const Path& GetPath() { return m_path; }
+
+	private:
+		std::string m_tripId;
+		Path m_path;
+	};
+
+	class BestMatches :virtual public JsonMsg
+	{
+	public:
+		static constexpr char const sk_labelMatches[] = "Mat";
+
+		static std::vector<MatchItem> ParseMatches(const JsonValue& json);
+
+	public:
+		BestMatches() = delete;
+		BestMatches(const std::vector<MatchItem>& path) :
+			m_matches(path)
+		{}
+
+		BestMatches(std::vector<MatchItem>&& path) :
+			m_matches(std::forward<std::vector<MatchItem> >(path))
+		{}
+
+		BestMatches(const BestMatches& rhs) :
+			BestMatches(rhs.m_matches)
+		{}
+
+		BestMatches(BestMatches&& rhs) :
+			BestMatches(std::forward<std::vector<MatchItem> >(rhs.m_matches))
+		{}
+
+		BestMatches(const JsonValue& json) :
+			BestMatches(ParseMatches(json))
+		{}
+
+		~BestMatches() {}
+
+		virtual JsonValue& ToJson(JsonDoc& doc) const override;
+
+		const std::vector<MatchItem>& GetMatches() const { return m_matches; }
+
+	private:
+		std::vector<MatchItem> m_matches;
+	};
+
+	class DriQueryLog : virtual public JsonMsg
+	{
+	public:
+		static constexpr char const sk_labelDriverId[] = "DriverId";
+		static constexpr char const sk_labelLoc[] = "Loc";
+
+	public:
+		DriQueryLog() = delete;
+
+		DriQueryLog(const std::string& driverId, const Point2D<double>& loc) :
+			m_driverId(driverId),
+			m_loc(loc)
+		{}
+
+		DriQueryLog(std::string&& driverId, Point2D<double>&& loc) :
+			m_driverId(std::forward<std::string>(driverId)),
+			m_loc(std::forward<Point2D<double> >(loc))
+		{}
+
+		DriQueryLog(const DriQueryLog& rhs) :
+			DriQueryLog(rhs.m_driverId, rhs.m_loc)
+		{}
+
+		DriQueryLog(DriQueryLog&& rhs) :
+			DriQueryLog(std::forward<std::string>(rhs.m_driverId),
+				std::forward<Point2D<double> >(rhs.m_loc))
+		{}
+
+		DriQueryLog(const JsonValue& json) :
+			DriQueryLog(Internal::ParseObj<std::string>(json, sk_labelDriverId),
+				Point2D<double>::Parse(json, sk_labelLoc))
+		{}
+
+		~DriQueryLog() {}
+
+		virtual JsonValue& ToJson(JsonDoc& doc) const override;
+
+		const std::string& GetDriverId() const { return m_driverId; }
+		const Point2D<double>& GetGetQuote() const { return m_loc; }
+
+	private:
+		std::string m_driverId;
+		Point2D<double> m_loc;
+	};
+
+	class FinalBill : virtual public JsonMsg
+	{
+	public:
+		static constexpr char const sk_labelQuote[] = "Quote";
+		static constexpr char const sk_labelOpPayment[] = "OpPay";
+
+	public:
+		FinalBill() = delete;
+
+		FinalBill(const Quote& quote, const std::string& opPayment) :
+			m_quote(quote),
+			m_opPay(opPayment)
+		{}
+
+		FinalBill(Quote&& quote, std::string&& opPayment) :
+			m_quote(std::forward<Quote>(quote)),
+			m_opPay(std::forward<std::string>(opPayment))
+		{}
+
+		FinalBill(const FinalBill& rhs) :
+			FinalBill(rhs.m_quote, rhs.m_opPay)
+		{}
+
+		FinalBill(FinalBill&& rhs) :
+			FinalBill(std::forward<Quote>(rhs.m_quote),
+				std::forward<std::string>(rhs.m_opPay))
+		{}
+
+		FinalBill(const JsonValue& json) :
+			FinalBill(Quote::Parse(json, sk_labelQuote),
+				Internal::ParseObj<std::string>(json, sk_labelOpPayment))
+		{}
+
+		~FinalBill() {}
+
+		virtual JsonValue& ToJson(JsonDoc& doc) const override;
+
+		const Quote& GetQuote() const { return m_quote; }
+		const std::string& GetOpPayment() const { return m_opPay; }
+
+	private:
+		Quote m_quote;
+		std::string m_opPay;
 	};
 }

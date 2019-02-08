@@ -39,6 +39,30 @@ namespace
 		throw MessageParseException();
 	}
 
+	template<typename T>
+	std::vector<T> ParseArray(const JsonValue & json)
+	{
+		if (json.JSON_IS_ARRAY())
+		{
+			std::vector<T> res;
+			for (auto it = json.JSON_ARR_BEGIN(); it != json.JSON_ARR_END(); ++it)
+			{
+				res.push_back(JSON_ARR_GETVALUE(it));
+			}
+			return res;
+		}
+		throw MessageParseException();
+	}
+
+	template<typename T>
+	std::vector<T> ParseArrayObj(const JsonValue & json, const char* label)
+	{
+		if (json.JSON_HAS_MEMBER(label))
+		{
+			return ParseArray<T>(json[label]);
+		}
+		throw MessageParseException();
+	}
 }
 
 template<>
@@ -175,20 +199,7 @@ Path Path::Parse(const JsonValue & json, const char* label)
 
 std::vector<Point2D<double> > Path::ParsePath(const JsonValue & json)
 {
-	std::vector<Point2D<double> > res;
-	if (json.JSON_HAS_MEMBER(Path::sk_labelPath))
-	{
-		const JsonValue& jsonPath = json[Path::sk_labelPath];
-		if (jsonPath.JSON_IS_ARRAY())
-		{
-			for (auto it = jsonPath.JSON_ARR_BEGIN(); it != jsonPath.JSON_ARR_END(); ++it)
-			{
-				res.push_back(JSON_ARR_GETVALUE(it));
-			}
-			return res;
-		}
-	}
-	throw MessageParseException();
+	return ParseArrayObj<Point2D<double> >(json, Path::sk_labelPath);
 }
 
 JsonValue& Path::ToJson(JsonDoc& doc) const
@@ -323,15 +334,31 @@ JsonValue& SignedQuote::ToJson(JsonDoc& doc) const
 	return doc;
 }
 
-constexpr char const ConfirmQuote::sk_labelName[];
-constexpr char const ConfirmQuote::sk_labelPhone[];
+constexpr char const PasContact::sk_labelName[];
+constexpr char const PasContact::sk_labelPhone[];
+
+PasContact PasContact::Parse(const JsonValue & json, const char * label)
+{
+	return ParseSubObj<PasContact>(json, label);
+}
+
+JsonValue & PasContact::ToJson(JsonDoc & doc) const
+{
+	Tools::JsonSetVal(doc, sk_labelName, m_name);
+	Tools::JsonSetVal(doc, sk_labelPhone, m_phone);
+
+	return doc;
+}
+
+constexpr char const ConfirmQuote::sk_labelPasContact[];
 constexpr char const ConfirmQuote::sk_labelSignedQuote[];
 
 JsonValue & ConfirmQuote::ToJson(JsonDoc & doc) const
 {
-	Tools::JsonSetVal(doc, ConfirmQuote::sk_labelName, m_name);
-	Tools::JsonSetVal(doc, ConfirmQuote::sk_labelPhone, m_phone);
-	Tools::JsonSetVal(doc, ConfirmQuote::sk_labelSignedQuote, m_signQuote);
+	JsonValue contact = std::move(m_contact.ToJson(doc));
+
+	Tools::JsonSetVal(doc, sk_labelPasContact, contact);
+	Tools::JsonSetVal(doc, sk_labelSignedQuote, m_signQuote);
 
 	return doc;
 }
@@ -399,6 +426,69 @@ JsonValue & DriverLoc::ToJson(JsonDoc & doc) const
 	JsonValue loc = std::move(m_loc.ToJson(doc));
 
 	Tools::JsonSetVal(doc, DriverLoc::sk_labelOrigin, loc);
+
+	return doc;
+}
+
+constexpr char const MatchItem::sk_labelTripId[];
+constexpr char const MatchItem::sk_labelPath[];
+
+JsonValue & MatchItem::ToJson(JsonDoc & doc) const
+{
+	JsonValue path = std::move(m_path.ToJson(doc));
+
+	Tools::JsonSetVal(doc, MatchItem::sk_labelTripId, m_tripId);
+	Tools::JsonSetVal(doc, MatchItem::sk_labelPath, path);
+
+	return doc;
+}
+
+constexpr char const BestMatches::sk_labelMatches[];
+
+std::vector<MatchItem> BestMatches::ParseMatches(const JsonValue & json)
+{
+	return ParseArrayObj<MatchItem>(json, sk_labelMatches);
+}
+
+JsonValue & BestMatches::ToJson(JsonDoc & doc) const
+{
+	std::vector<JsonValue> itemArr;
+	itemArr.reserve(m_matches.size());
+
+	for (const MatchItem& item : m_matches)
+	{
+		itemArr.push_back(std::move(item.ToJson(doc)));
+	}
+
+	JsonValue matches = std::move(Tools::JsonConstructArray(doc, itemArr));
+
+	Tools::JsonSetVal(doc, sk_labelMatches, matches);
+
+	return doc;
+}
+
+constexpr char const DriQueryLog::sk_labelDriverId[];
+constexpr char const DriQueryLog::sk_labelLoc[];
+
+JsonValue & DriQueryLog::ToJson(JsonDoc & doc) const
+{
+	JsonValue loc = std::move(m_loc.ToJson(doc));
+
+	Tools::JsonSetVal(doc, sk_labelDriverId, m_driverId);
+	Tools::JsonSetVal(doc, sk_labelLoc, loc);
+
+	return doc;
+}
+
+constexpr char const FinalBill::sk_labelQuote[];
+constexpr char const FinalBill::sk_labelOpPayment[];
+
+JsonValue & FinalBill::ToJson(JsonDoc & doc) const
+{
+	JsonValue quote = std::move(m_quote.ToJson(doc));
+
+	Tools::JsonSetVal(doc, sk_labelQuote, quote);
+	Tools::JsonSetVal(doc, sk_labelOpPayment, m_opPay);
 
 	return doc;
 }
