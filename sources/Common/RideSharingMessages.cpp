@@ -350,6 +350,24 @@ JsonValue & PasContact::ToJson(JsonDoc & doc) const
 	return doc;
 }
 
+constexpr char const DriContact::sk_labelName[];
+constexpr char const DriContact::sk_labelPhone[];
+constexpr char const DriContact::sk_labelLicPlate[];
+
+DriContact DriContact::Parse(const JsonValue & json, const char * label)
+{
+	return ParseSubObj<DriContact>(json, label);
+}
+
+JsonValue & DriContact::ToJson(JsonDoc & doc) const
+{
+	Tools::JsonSetVal(doc, sk_labelName, m_name);
+	Tools::JsonSetVal(doc, sk_labelPhone, m_phone);
+	Tools::JsonSetVal(doc, sk_labelLicPlate, m_licPlate);
+
+	return doc;
+}
+
 constexpr char const ConfirmQuote::sk_labelPasContact[];
 constexpr char const ConfirmQuote::sk_labelSignedQuote[];
 
@@ -489,6 +507,49 @@ JsonValue & FinalBill::ToJson(JsonDoc & doc) const
 
 	Tools::JsonSetVal(doc, sk_labelQuote, quote);
 	Tools::JsonSetVal(doc, sk_labelOpPayment, m_opPay);
+
+	return doc;
+}
+
+constexpr char const PasReg::sk_labelContact[];
+constexpr char const PasReg::sk_labelPayment[];
+constexpr char const PasReg::sk_labelCsr[];
+
+JsonValue & PasReg::ToJson(JsonDoc & doc) const
+{
+	JsonValue contact = std::move(m_contact.ToJson(doc));
+
+	Tools::JsonSetVal(doc, sk_labelContact, contact);
+	Tools::JsonSetVal(doc, sk_labelPayment, m_pay);
+	Tools::JsonSetVal(doc, sk_labelCsr, m_csr);
+
+	return doc;
+}
+
+constexpr char const DriReg::sk_labelContact[];
+constexpr char const DriReg::sk_labelPayment[];
+constexpr char const DriReg::sk_labelCsr[];
+constexpr char const DriReg::sk_labelDriLic[];
+
+JsonValue & DriReg::ToJson(JsonDoc & doc) const
+{
+	JsonValue contact = std::move(m_contact.ToJson(doc));
+
+	Tools::JsonSetVal(doc, sk_labelContact, contact);
+	Tools::JsonSetVal(doc, sk_labelPayment, m_pay);
+	Tools::JsonSetVal(doc, sk_labelCsr, m_csr);
+	Tools::JsonSetVal(doc, sk_labelDriLic, m_driLic);
+
+	return doc;
+}
+
+constexpr char const RequestedPayment::sk_labelPayment[];
+constexpr char const RequestedPayment::sk_labelOpPaymnet[];
+
+JsonValue & RequestedPayment::ToJson(JsonDoc & doc) const
+{
+	Tools::JsonSetVal(doc, sk_labelPayment, m_pay);
+	Tools::JsonSetVal(doc, sk_labelOpPaymnet, m_opPay);
 
 	return doc;
 }

@@ -418,6 +418,59 @@ namespace ComMsg
 		std::string m_phone;
 	};
 
+	class DriContact : virtual public JsonMsg
+	{
+	public:
+		static constexpr char const sk_labelName[] = "Name";
+		static constexpr char const sk_labelPhone[] = "Phone";
+		static constexpr char const sk_labelLicPlate[] = "Plate";
+
+		static DriContact Parse(const JsonValue& json, const char* label);
+
+	public:
+		DriContact() = delete;
+
+		DriContact(const std::string& name, const std::string& phone, const std::string& licPlate) :
+			m_name(name),
+			m_phone(phone),
+			m_licPlate(licPlate)
+		{}
+
+		DriContact(std::string&& name, std::string&& phone, std::string&& licPlate) :
+			m_name(std::forward<std::string>(name)),
+			m_phone(std::forward<std::string>(phone)),
+			m_licPlate(std::forward<std::string>(licPlate))
+		{}
+
+		DriContact(const DriContact& rhs) :
+			DriContact(rhs.m_name, rhs.m_phone, rhs.m_licPlate)
+		{}
+
+		DriContact(DriContact&& rhs) :
+			DriContact(std::forward<std::string>(rhs.m_name),
+				std::forward<std::string>(rhs.m_phone),
+				std::forward<std::string>(rhs.m_licPlate))
+		{}
+
+		DriContact(const JsonValue& json) :
+			DriContact(Internal::ParseObj<std::string>(json, sk_labelName),
+				Internal::ParseObj<std::string>(json, sk_labelPhone),
+				Internal::ParseObj<std::string>(json, sk_labelLicPlate))
+		{}
+
+		~DriContact() {}
+
+		virtual JsonValue& ToJson(JsonDoc& doc) const override;
+
+		const std::string& GetName() const { return m_name; }
+		const std::string& GetPhone() const { return m_phone; }
+
+	private:
+		std::string m_name;
+		std::string m_phone;
+		std::string m_licPlate;
+	};
+
 	class ConfirmQuote : virtual public JsonMsg
 	{
 	public:
@@ -864,6 +917,162 @@ namespace ComMsg
 
 	private:
 		Quote m_quote;
+		std::string m_opPay;
+	};
+
+	class PasReg : virtual public JsonMsg
+	{
+	public:
+		static constexpr char const sk_labelContact[] = "Contact";
+		static constexpr char const sk_labelPayment[] = "Pay";
+		static constexpr char const sk_labelCsr[] = "Csr";
+
+	public:
+		PasReg() = delete;
+
+		PasReg(const PasContact& contact, const std::string& payment, const std::string& csr) :
+			m_contact(contact),
+			m_pay(payment),
+			m_csr(csr)
+		{}
+
+		PasReg(PasContact&& contact, std::string&& payment, std::string&& csr) :
+			m_contact(std::forward<PasContact>(contact)),
+			m_pay(std::forward<std::string>(payment)),
+			m_csr(std::forward<std::string>(csr))
+		{}
+
+		PasReg(const PasReg& rhs) :
+			PasReg(rhs.m_contact, rhs.m_pay, rhs.m_csr)
+		{}
+
+		PasReg(PasReg&& rhs) :
+			PasReg(std::forward<PasContact>(rhs.m_contact),
+				std::forward<std::string>(rhs.m_pay),
+				std::forward<std::string>(rhs.m_csr))
+		{}
+
+		PasReg(const JsonValue& json) :
+			PasReg(PasContact::Parse(json, sk_labelContact),
+				Internal::ParseObj<std::string>(json, sk_labelPayment),
+				Internal::ParseObj<std::string>(json, sk_labelCsr))
+		{}
+
+		~PasReg() {}
+
+		virtual JsonValue& ToJson(JsonDoc& doc) const override;
+
+		const PasContact& GetContact() const { return m_contact; }
+		const std::string& GetPayment() const { return m_pay; }
+		const std::string& GetCsr() const { return m_csr; }
+
+	private:
+		PasContact m_contact;
+		std::string m_pay;
+		std::string m_csr;
+	};
+
+	class DriReg : virtual public JsonMsg
+	{
+	public:
+		static constexpr char const sk_labelContact[] = "Contact";
+		static constexpr char const sk_labelPayment[] = "Pay";
+		static constexpr char const sk_labelCsr[] = "Csr";
+		static constexpr char const sk_labelDriLic[] = "Lic";
+
+	public:
+		DriReg() = delete;
+
+		DriReg(const DriContact& contact, const std::string& payment, const std::string& csr, const std::string& lic) :
+			m_contact(contact),
+			m_pay(payment),
+			m_csr(csr),
+			m_driLic(lic)
+		{}
+
+		DriReg(DriContact&& contact, std::string&& payment, std::string&& csr, std::string&& lic) :
+			m_contact(std::forward<DriContact>(contact)),
+			m_pay(std::forward<std::string>(payment)),
+			m_csr(std::forward<std::string>(csr)),
+			m_driLic(std::forward<std::string>(lic))
+		{}
+
+		DriReg(const DriReg& rhs) :
+			DriReg(rhs.m_contact, rhs.m_pay, rhs.m_csr, rhs.m_driLic)
+		{}
+
+		DriReg(DriReg&& rhs) :
+			DriReg(std::forward<DriContact>(rhs.m_contact),
+				std::forward<std::string>(rhs.m_pay),
+				std::forward<std::string>(rhs.m_csr),
+				std::forward<std::string>(rhs.m_driLic))
+		{}
+
+		DriReg(const JsonValue& json) :
+			DriReg(DriContact::Parse(json, sk_labelContact),
+				Internal::ParseObj<std::string>(json, sk_labelPayment),
+				Internal::ParseObj<std::string>(json, sk_labelCsr),
+				Internal::ParseObj<std::string>(json, sk_labelDriLic))
+		{}
+
+		~DriReg() {}
+
+		virtual JsonValue& ToJson(JsonDoc& doc) const override;
+
+		const DriContact& GetContact() const { return m_contact; }
+		const std::string& GetPayment() const { return m_pay; }
+		const std::string& GetCsr() const { return m_csr; }
+		const std::string& GetDriLic() const { return m_driLic; }
+
+	private:
+		DriContact m_contact;
+		std::string m_pay;
+		std::string m_csr;
+		std::string m_driLic;
+	};
+
+	class RequestedPayment : virtual public JsonMsg
+	{
+	public:
+		static constexpr char const sk_labelPayment[] = "Pay";
+		static constexpr char const sk_labelOpPaymnet[] = "OpPay";
+
+	public:
+		RequestedPayment() = delete;
+
+		RequestedPayment(const std::string& payment, const std::string& opPayment) :
+			m_pay(payment),
+			m_opPay(opPayment)
+		{}
+
+		RequestedPayment(std::string&& payment, std::string&& opPayment) :
+			m_pay(std::forward<std::string>(payment)),
+			m_opPay(std::forward<std::string>(opPayment))
+		{}
+
+		RequestedPayment(const RequestedPayment& rhs) :
+			RequestedPayment(rhs.m_pay, rhs.m_opPay)
+		{}
+
+		RequestedPayment(RequestedPayment&& rhs) :
+			RequestedPayment(std::forward<std::string>(rhs.m_pay),
+				std::forward<std::string>(rhs.m_opPay))
+		{}
+
+		RequestedPayment(const JsonValue& json) :
+			RequestedPayment(Internal::ParseObj<std::string>(json, sk_labelPayment),
+				Internal::ParseObj<std::string>(json, sk_labelOpPaymnet))
+		{}
+
+		~RequestedPayment() {}
+
+		virtual JsonValue& ToJson(JsonDoc& doc) const override;
+
+		const std::string& GetCsr() const { return m_pay; }
+		const std::string& GetDriLic() const { return m_opPay; }
+
+	private:
+		std::string m_pay;
 		std::string m_opPay;
 	};
 }
