@@ -2,23 +2,28 @@
 
 #include <cstdio>
 
+#include <DecentApi/CommonApp/SGX/EnclaveRuntimeException.h>
+
 #include "../Common_App/RideSharingMessages.h"
 
-bool TripPlanerApp::ProcessQuoteRequest(Decent::Net::Connection & connection)
-{
-	return false;
-}
+#include "Enclave_u.h"
 
-bool TripPlanerApp::ProcessConfirmedQuote(Decent::Net::Connection & connection)
+bool TripPlanerApp::ProcessMsgFromPassenger(Decent::Net::Connection & connection)
 {
-	return false;
+	int retValue = false;
+	sgx_status_t enclaveRet = SGX_SUCCESS;
+
+	enclaveRet = ecall_ride_share_tp_from_pas(GetEnclaveId(), &retValue, &connection);
+	CHECK_SGX_ENCLAVE_RUNTIME_EXCEPTION(enclaveRet, ecall_ride_share_tp_from_pas);
+
+	return retValue;
 }
 
 bool TripPlanerApp::ProcessSmartMessage(const std::string & category, const Json::Value & jsonMsg, Decent::Net::Connection & connection)
 {
-	if (category == GetQuoteMessage::sk_ValueCat)
+	if (category == FromPassenger::sk_ValueCat)
 	{
-		return ProcessQuoteRequest(connection);
+		return ProcessMsgFromPassenger(connection);
 	}
 	else
 	{

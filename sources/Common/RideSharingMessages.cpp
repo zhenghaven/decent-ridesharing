@@ -381,19 +381,18 @@ JsonValue & ConfirmQuote::ToJson(JsonDoc & doc) const
 	return doc;
 }
 
-constexpr char const ConfirmedQuote::sk_labelName[];
-constexpr char const ConfirmedQuote::sk_labelPhone[];
+constexpr char const ConfirmedQuote::sk_labelPasContact[];
 constexpr char const ConfirmedQuote::sk_labelQuote[];
 constexpr char const ConfirmedQuote::sk_labelOpPayment[];
 
 JsonValue & ConfirmedQuote::ToJson(JsonDoc & doc) const
 {
+	JsonValue contact = std::move(m_contact.ToJson(doc));
 	JsonValue quote = std::move(m_quote.ToJson(doc));
 
-	Tools::JsonSetVal(doc, ConfirmedQuote::sk_labelName, m_name);
-	Tools::JsonSetVal(doc, ConfirmedQuote::sk_labelPhone, m_phone);
-	Tools::JsonSetVal(doc, ConfirmedQuote::sk_labelQuote, quote);
-	Tools::JsonSetVal(doc, ConfirmedQuote::sk_labelOpPayment, m_opPayment);
+	Tools::JsonSetVal(doc, sk_labelPasContact, contact);
+	Tools::JsonSetVal(doc, sk_labelQuote, quote);
+	Tools::JsonSetVal(doc, sk_labelOpPayment, m_opPayment);
 
 	return doc;
 }

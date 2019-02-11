@@ -508,7 +508,7 @@ namespace ComMsg
 
 		virtual JsonValue& ToJson(JsonDoc& doc) const override;
 
-		const PasContact& GetName() const { return m_contact; }
+		const PasContact& GetContact() const { return m_contact; }
 		const std::string& GetSignQuote() const { return m_signQuote; }
 
 	private:
@@ -519,42 +519,37 @@ namespace ComMsg
 	class ConfirmedQuote : virtual public JsonMsg
 	{
 	public:
-		static constexpr char const sk_labelName[] = "Name";
-		static constexpr char const sk_labelPhone[] = "Phone";
+		static constexpr char const sk_labelPasContact[] = "Contact";
 		static constexpr char const sk_labelQuote[] = "Quote";
 		static constexpr char const sk_labelOpPayment[] = "OpPayment";
 
 	public:
 		ConfirmedQuote() = delete;
 
-		ConfirmedQuote(const std::string& name, const std::string& phone, const Quote& quote, const std::string& opPayment) :
-			m_name(name),
-			m_phone(phone),
+		ConfirmedQuote(const PasContact& contact, const Quote& quote, const std::string& opPayment) :
+			m_contact(contact),
 			m_quote(quote),
 			m_opPayment(opPayment)
 		{}
 
-		ConfirmedQuote(std::string&& name, std::string&& phone, Quote&& quote, std::string&& opPayment) :
-			m_name(std::forward<std::string>(name)),
-			m_phone(std::forward<std::string>(phone)),
+		ConfirmedQuote(PasContact&& contact, Quote&& quote, std::string&& opPayment) :
+			m_contact(std::forward<PasContact>(contact)),
 			m_quote(std::forward<Quote>(quote)),
 			m_opPayment(std::forward<std::string>(opPayment))
 		{}
 
 		ConfirmedQuote(const ConfirmedQuote& rhs) :
-			ConfirmedQuote(rhs.m_name, rhs.m_phone, rhs.m_quote, rhs.m_opPayment)
+			ConfirmedQuote(rhs.m_contact, rhs.m_quote, rhs.m_opPayment)
 		{}
 
 		ConfirmedQuote(ConfirmedQuote&& rhs) :
-			ConfirmedQuote(std::forward<std::string>(rhs.m_name),
-				std::forward<std::string>(rhs.m_phone),
+			ConfirmedQuote(std::forward<PasContact>(rhs.m_contact),
 				std::forward<Quote>(rhs.m_quote),
 				std::forward<std::string>(rhs.m_opPayment))
 		{}
 
 		ConfirmedQuote(const JsonValue& json) :
-			ConfirmedQuote(Internal::ParseObj<std::string>(json, sk_labelName),
-				Internal::ParseObj<std::string>(json, sk_labelPhone),
+			ConfirmedQuote(PasContact::Parse(json, sk_labelPasContact),
 				Quote::Parse(json, sk_labelQuote),
 				Internal::ParseObj<std::string>(json, sk_labelOpPayment))
 		{}
@@ -563,14 +558,12 @@ namespace ComMsg
 
 		virtual JsonValue& ToJson(JsonDoc& doc) const override;
 
-		const std::string& GetName() const { return m_name; }
-		const std::string& GetPhone() const { return m_phone; }
+		const PasContact& GetContact() const { return m_contact; }
 		const Quote& GetSignQuote() const { return m_quote; }
 		const std::string& GetOpPayment() const { return m_opPayment; }
 
 	private:
-		std::string m_name;
-		std::string m_phone;
+		PasContact m_contact;
 		Quote m_quote;
 		std::string m_opPayment;
 	};

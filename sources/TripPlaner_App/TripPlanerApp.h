@@ -9,9 +9,7 @@ public:
 
 	virtual ~TripPlanerApp() {}
 
-	virtual bool ProcessQuoteRequest(Decent::Net::Connection& connection);
-
-	virtual bool ProcessConfirmedQuote(Decent::Net::Connection& connection);
+	virtual bool ProcessMsgFromPassenger(Decent::Net::Connection& connection);
 
 	virtual bool ProcessSmartMessage(const std::string& category, const Json::Value& jsonMsg, Decent::Net::Connection& connection) override;
 

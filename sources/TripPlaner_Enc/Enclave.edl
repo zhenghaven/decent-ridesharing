@@ -11,6 +11,7 @@ enclave {
 
 	trusted 
 	{
+		public int ecall_ride_share_tp_from_pas([user_check] void* connection);
 	};
 
 };
