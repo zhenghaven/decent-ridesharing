@@ -197,7 +197,7 @@ extern "C" int ecall_ride_share_tp_from_pas(void* const connection)
 		return false;
 	}
 
-	const EncFunc::TripPlaner::NumType funcNum = *reinterpret_cast<const uint8_t*>(msgBuf.data());
+	const EncFunc::TripPlaner::NumType funcNum = *reinterpret_cast<const EncFunc::TripPlaner::NumType*>(msgBuf.data());
 
 	LOGI("Request Function: %d.", funcNum);
 

@@ -22,7 +22,7 @@ if(NOT EXISTS "${gate_module}")
 	message(FATAL_ERROR "${gate_module} module not found!")
 endif()
 
-message("Including HunterGate: ${gate_module}")
+message(STATUS "Including HunterGate: ${gate_module}")
 include("${gate_module}")
 
 get_filename_component(HUNTER_ROOT "${CMAKE_CURRENT_LIST_DIR}/hunter" ABSOLUTE)
@@ -213,6 +213,13 @@ file(GLOB_RECURSE SOURCES_TripPlaner_App ${SOURCEDIR_TripPlaner_App}/*.[ch]*)
 file(GLOB_RECURSE SOURCES_TripPlaner_Enc ${SOURCEDIR_TripPlaner_Enc}/*.[ch]*)
 file(GLOB_RECURSE SOURCES_TripPlaner_EDL ${SOURCEDIR_TripPlaner_Enc}/*.edl)
 
+# PassengerMgm Files:
+set(SOURCEDIR_PassengerMgm_App ${SOURCEDIR}/PassengerMgm_App)
+set(SOURCEDIR_PassengerMgm_Enc ${SOURCEDIR}/PassengerMgm_Enc)
+file(GLOB_RECURSE SOURCES_PassengerMgm_App ${SOURCEDIR_PassengerMgm_App}/*.[ch]*)
+file(GLOB_RECURSE SOURCES_PassengerMgm_Enc ${SOURCEDIR_PassengerMgm_Enc}/*.[ch]*)
+file(GLOB_RECURSE SOURCES_PassengerMgm_EDL ${SOURCEDIR_PassengerMgm_Enc}/*.edl)
+
 
 #==========================================================
 #   Setup filters
@@ -250,7 +257,7 @@ endif()
 #   Enclave Projects
 #==========================================================
 
-set(Proj_Name_List TripPlaner)
+set(Proj_Name_List TripPlaner PassengerMgm)
 
 ###########################################################
 ### EDL
@@ -292,7 +299,7 @@ foreach(Proj_Name IN ITEMS ${Proj_Name_List})
 	set(${Proj_Name}_Enclave_File "${Enclave_Prog_Prefix}${Proj_Name}_Enclave.signed.${Enclave_Prog_Postfix}")
 	set(${Proj_Name}_Enclave_Lib "${Enclave_Prog_Prefix}${Proj_Name}_Enclave$<$<CONFIG:Debug>:${CMAKE_DEBUG_POSTFIX}>.${Enclave_Prog_Postfix}")
 
-	add_library(${Proj_Name}_Enclave SHARED ${SOURCES_Common} ${SOURCES_Common_EDL} ${SOURCES_Common_Enc} ${SOURCES_${Proj_Name}_Enc} ${SOURCES_TripPlaner_EDL})
+	add_library(${Proj_Name}_Enclave SHARED ${SOURCES_Common} ${SOURCES_Common_EDL} ${SOURCES_Common_Enc} ${SOURCES_${Proj_Name}_Enc} ${SOURCES_${Proj_Name}_EDL})
 	#defines:
 	target_compile_definitions(${Proj_Name}_Enclave PRIVATE ${COMMON_ENCLAVE_DEFINES})
 	#compiler flags:
@@ -332,7 +339,7 @@ foreach(Proj_Name IN ITEMS ${Proj_Name_List})
 	### App
 	###########################################################
 
-	add_executable(${Proj_Name}_App ${SOURCES_Common} ${SOURCES_Common_EDL} ${SOURCES_Common_App} ${SOURCES_${Proj_Name}_App} ${SOURCES_TripPlaner_EDL})
+	add_executable(${Proj_Name}_App ${SOURCES_Common} ${SOURCES_Common_EDL} ${SOURCES_Common_App} ${SOURCES_${Proj_Name}_App} ${SOURCES_${Proj_Name}_EDL})
 	#includes:
 	target_include_directories(${Proj_Name}_App PRIVATE ${TCLAP_INCLUDE_DIR})
 	#defines:

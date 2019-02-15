@@ -1,0 +1,19 @@
+enclave {
+	
+	include "sgx_key_exchange.h"
+	include "sgx_trts.h"
+	
+	from "sgx_ra_client.edl" import *;
+	from "sgx_ra_sp.edl" import *;
+	from "decent_tools.edl" import *;
+	from "decent_net.edl" import *;
+	from "decent_ra_app.edl" import *;
+
+	trusted 
+	{
+		public int ecall_ride_share_pm_from_pas([user_check] void* connection);
+		public int ecall_ride_share_pm_from_trip_planner([user_check] void* connection);
+		public int ecall_ride_share_pm_from_payment([user_check] void* connection);
+	};
+
+};

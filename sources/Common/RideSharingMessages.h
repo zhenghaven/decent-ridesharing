@@ -170,8 +170,8 @@ namespace ComMsg
 
 		virtual JsonValue& ToJson(JsonDoc& doc) const override;
 
-		const Point2D<double>& GetOri() { return m_ori; }
-		const Point2D<double>& GetDest() { return m_dest; }
+		const Point2D<double>& GetOri() const { return m_ori; }
+		const Point2D<double>& GetDest() const { return m_dest; }
 
 	private:
 		Point2D<double> m_ori;

@@ -1,7 +1,5 @@
 #include "TripPlanerApp.h"
 
-#include <cstdio>
-
 #include <DecentApi/CommonApp/SGX/EnclaveRuntimeException.h>
 
 #include "../Common_App/RideSharingMessages.h"
