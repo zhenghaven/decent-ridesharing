@@ -5,6 +5,8 @@
 #include <DecentApi/Common/Common.h>
 #include <DecentApi/Common/Ra/TlsConfig.h>
 #include <DecentApi/Common/Ra/States.h>
+#include <DecentApi/Common/Ra/KeyContainer.h>
+#include <DecentApi/Common/Ra/CertContainer.h>
 #include <DecentApi/Common/Net/TlsCommLayer.h>
 #include <DecentApi/Common/Tools/JsonTools.h>
 
@@ -29,6 +31,18 @@ namespace
 		std::string m_name;
 		std::string m_phone;
 		std::string m_pay;
+
+		PasProfileItem(const std::string& name, const std::string& phone, const std::string& pay) :
+			m_name(name),
+			m_phone(phone),
+			m_pay(pay)
+		{}
+
+		PasProfileItem(PasProfileItem&& rhs) :
+			m_name(std::move(rhs.m_name)),
+			m_phone(rhs.m_phone),
+			m_pay(rhs.m_pay)
+		{}
 	};
 
 	std::map<std::string, PasProfileItem> gs_pasProfiles;
@@ -55,8 +69,46 @@ static void ProcessPasRegisterReq(void* const connection, Decent::Net::TlsCommLa
 		json.Clear();
 
 		
+		const std::string& csrPem = pasRegInfo.GetCsr();
+		X509Req certReq(csrPem);
 
-		//tls.SendMsg(connection, tripId.ToString());
+		std::shared_ptr<const Decent::MbedTlsObj::ECKeyPair> prvKey = gs_state.GetKeyContainer().GetSignKeyPair();
+		std::shared_ptr<const AppX509> cert = std::dynamic_pointer_cast<const AppX509>(gs_state.GetCertContainer().GetCert());
+
+		if (!certReq.VerifySignature() ||
+			!prvKey || !*prvKey ||
+			!cert || !*cert)
+		{
+			return;
+		}
+		
+		ClientX509 clientCert(certReq.GetEcPublicKey(), *cert, *prvKey, "RideSharingClient");
+
+		if (!clientCert)
+		{
+			LOGI("Client certificate generation failed!");
+			return;
+		}
+
+		const std::string clientCertPem = clientCert.ToPemString();
+		LOGI("Client certificate is generated:\n%s\n", clientCertPem.c_str());
+
+		{
+			std::unique_lock<std::mutex> pasProfilesLock(gs_pasProfilesMutex);
+			auto it = gsk_pasProfiles.find(clientCertPem);
+			if (it != gsk_pasProfiles.cend())
+			{
+				LOGI("Client profile already exist.");
+				return;
+			}
+
+			gs_pasProfiles.insert(std::make_pair(clientCertPem,
+				PasProfileItem(pasRegInfo.GetContact().GetName(), pasRegInfo.GetContact().GetPhone(), pasRegInfo.GetPayment())));
+
+			LOGI("Client profile added. Profile store size: %llu.", gsk_pasProfiles.size());
+		}
+
+		tls.SendMsg(connection, clientCertPem);
 
 	}
 	catch (const std::exception&)
@@ -69,17 +121,18 @@ extern "C" int ecall_ride_share_pm_from_pas(void* const connection)
 {
 	LOGI("Processing message from passenger...");
 
-	std::shared_ptr<RideShare::TlsConfig> tlsCfg = std::make_shared<RideShare::TlsConfig>(""/*TODO*/, gs_state, true);
-	Decent::Net::TlsCommLayer tls(connection, tlsCfg, true);
-
-	LOGI("TLS Handshake Successful!");
+	std::shared_ptr<Decent::Ra::TlsConfig> pasTlsCfg = std::make_shared<Decent::Ra::TlsConfig>(""/*TODO*/, gs_state, true);
+	Decent::Net::TlsCommLayer pasTls(connection, pasTlsCfg, false);
 
 	std::string msgBuf;
-	if (!tls.ReceiveMsg(connection, msgBuf) ||
+	if (!pasTls.ReceiveMsg(connection, msgBuf) ||
 		msgBuf.size() != sizeof(EncFunc::PassengerMgm::NumType))
 	{
+		LOGI("TLS Handshake Failed!");
 		return false;
 	}
+
+	LOGI("TLS Handshake Successful!");
 
 	const EncFunc::PassengerMgm::NumType funcNum = *reinterpret_cast<const EncFunc::PassengerMgm::NumType*>(msgBuf.data());
 
@@ -88,7 +141,7 @@ extern "C" int ecall_ride_share_pm_from_pas(void* const connection)
 	switch (funcNum)
 	{
 	case EncFunc::PassengerMgm::k_userReg:
-		ProcessPasRegisterReq(connection, tls);
+		ProcessPasRegisterReq(connection, pasTls);
 		break;
 	default:
 		break;
@@ -133,17 +186,18 @@ extern "C" int ecall_ride_share_pm_from_trip_planner(void* const connection)
 {
 	LOGI("Processing message from Trip Planner...");
 
-	std::shared_ptr<Decent::Ra::TlsConfig> tpTlsCfg = std::make_shared<Decent::Ra::TlsConfig>(""/*TODO*/, gs_state, false);
+	std::shared_ptr<Decent::Ra::TlsConfig> tpTlsCfg = std::make_shared<Decent::Ra::TlsConfig>(""/*TODO*/, gs_state, true);
 	Decent::Net::TlsCommLayer tpTls(connection, tpTlsCfg, true);
-
-	LOGI("TLS Handshake Successful!");
 
 	std::string msgBuf;
 	if (!tpTls.ReceiveMsg(connection, msgBuf) ||
 		msgBuf.size() != sizeof(EncFunc::PassengerMgm::NumType))
 	{
+		LOGI("TLS Handshake Failed!");
 		return false;
 	}
+
+	LOGI("TLS Handshake Successful!");
 
 	const EncFunc::PassengerMgm::NumType funcNum = *reinterpret_cast<const EncFunc::PassengerMgm::NumType*>(msgBuf.data());
 
@@ -198,17 +252,18 @@ extern "C" int ecall_ride_share_pm_from_payment(void* const connection)
 {
 	LOGI("Processing message from payment services...");
 
-	std::shared_ptr<Decent::Ra::TlsConfig> tpTlsCfg = std::make_shared<Decent::Ra::TlsConfig>(""/*TODO*/, gs_state, false);
+	std::shared_ptr<Decent::Ra::TlsConfig> tpTlsCfg = std::make_shared<Decent::Ra::TlsConfig>(""/*TODO*/, gs_state, true);
 	Decent::Net::TlsCommLayer tpTls(connection, tpTlsCfg, true);
-
-	LOGI("TLS Handshake Successful!");
 
 	std::string msgBuf;
 	if (!tpTls.ReceiveMsg(connection, msgBuf) ||
 		msgBuf.size() != sizeof(EncFunc::PassengerMgm::NumType))
 	{
+		LOGI("TLS Handshake Failed!");
 		return false;
 	}
+
+	LOGI("TLS Handshake Successful!");
 
 	const EncFunc::PassengerMgm::NumType funcNum = *reinterpret_cast<const EncFunc::PassengerMgm::NumType*>(msgBuf.data());
 
