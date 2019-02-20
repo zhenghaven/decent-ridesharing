@@ -552,29 +552,3 @@ JsonValue & RequestedPayment::ToJson(JsonDoc & doc) const
 
 	return doc;
 }
-
-struct TestStruct
-{
-	TestStruct()
-	{
-		using TestMsgType = Quote;
-
-		LOGI("Json Msg Test:");
-
-		TestMsgType testMsg(GetQuote(Point2D<double>(1.1, 1.2), Point2D<double>(1.3, 1.4)), 
-			Path({ Point2D<double>(1.1, 1.2), Point2D<double>(1.3, 1.4) }), 
-			Price(100.12, "TestPayment"), 
-			"TestPayment");
-
-		LOGI("1: \n%s", testMsg.ToString().c_str());
-
-		JsonDoc doc;
-		Tools::ParseStr2Json(doc, testMsg.ToString());
-
-		TestMsgType testMsg2(doc);
-
-		LOGI("2: \n%s", testMsg2.ToString().c_str());
-	}
-};
-
-static TestStruct test;

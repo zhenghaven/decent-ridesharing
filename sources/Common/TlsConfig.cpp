@@ -1,6 +1,7 @@
 #include "TlsConfig.h"
 
 #include <mbedtls/ssl.h>
+#include <DecentApi/Common/Common.h>
 
 #include "Crypto.h"
 
@@ -23,34 +24,34 @@ int TlsConfig::CertVerifyCallBack(mbedtls_x509_crt& cert, int depth, uint32_t& f
 	case 0: //Client Cert
 	{
 		RideShare::ClientX509 certObj(cert);
+		LOGI("Verifing Client Cert: %s.", certObj.GetCommonName().c_str());
 		if (!certObj)
 		{
 			flag = MBEDTLS_X509_BADCERT_NOT_TRUSTED;
 			return MBEDTLS_SUCCESS_RET;
 		}
-
 		return ClientCertVerifyCallBack(certObj, depth, flag);
 	}
 	case 1: //Verifier Cert
 	{
 		Decent::Ra::AppX509 certObj(cert);
+		LOGI("Verifing App Cert: %s.", certObj.GetCommonName().c_str());
 		if (!certObj)
 		{
 			flag = MBEDTLS_X509_BADCERT_NOT_TRUSTED;
 			return MBEDTLS_SUCCESS_RET;
 		}
-
 		return AppCertVerifyCallBack(certObj, depth, flag);
 	}
 	case 2: //Decent Cert
 	{
 		const Decent::Ra::ServerX509 serverCert(cert);
+		LOGI("Verifing Server Cert: %s.", serverCert.GetCommonName().c_str());
 		if (!serverCert)
 		{
 			flag = MBEDTLS_X509_BADCERT_NOT_TRUSTED;
 			return MBEDTLS_SUCCESS_RET;
 		}
-
 		return ServerCertVerifyCallBack(serverCert, depth, flag);
 	}
 	default:

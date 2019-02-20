@@ -1,6 +1,7 @@
 //#include "Enclave_t.h"
 
 #include <DecentApi/Common/Common.h>
+#include <DecentApi/Common/make_unique.h>
 #include <DecentApi/Common/Ra/TlsConfig.h>
 #include <DecentApi/Common/Ra/States.h>
 #include <DecentApi/Common/Net/TlsCommLayer.h>
@@ -19,6 +20,23 @@ using namespace Decent::Ra;
 namespace
 {
 	static States& gs_state = States::Get();
+
+	template<typename MsgType>
+	static std::unique_ptr<MsgType> ParseMsg(const std::string& msgStr)
+	{
+		//LOGW("Parsing Msg (size = %llu): \n%s\n", msgStr.size(), msgStr.c_str());
+		try
+		{
+			rapidjson::Document json;
+			return Decent::Tools::ParseStr2Json(json, msgStr) ?
+				Decent::Tools::make_unique<MsgType>(json) :
+				nullptr;
+		}
+		catch (const std::exception&)
+		{
+			return nullptr;
+		}
+	}
 }
 
 static bool FindPath(const ComMsg::Point2D<double>& ori, const ComMsg::Point2D<double>& dst, std::vector<ComMsg::Point2D<double> >& path)
@@ -52,62 +70,54 @@ static void ProcessGetQuote(void* const connection, Decent::Net::TlsCommLayer& t
 	LOGI("Process Get Quote Request.");
 
 	std::string msgBuf;
-	rapidjson::Document json;
 
-	try
-	{
-		if (!tls.ReceiveMsg(connection, msgBuf) ||
-			!Decent::Tools::ParseStr2Json(json, msgBuf))
-		{
-			return;
-		}
+	std::unique_ptr<ComMsg::GetQuote> getQuote;
 
-		ComMsg::GetQuote getQuote(json);
-		json.Clear();
-
-		SendQueryLog(""/*TODO*/, getQuote);
-
-		LOGI("Finding Path...");
-		std::vector<ComMsg::Point2D<double> > path;
-		if (!FindPath(getQuote.GetOri(), getQuote.GetDest(), path))
-		{
-			return;
-		}
-
-		ComMsg::Path pathMsg(path);
-
-		LOGI("Querying Billing Service for price...");
-
-		void* bsCont = nullptr;
-
-		//TODO: Get Connection to Billing Service
-
-		LOGI("Connecting to a Billing Service...");
-		std::shared_ptr<Decent::Ra::TlsConfig> bsTlsCfg = std::make_shared<Decent::Ra::TlsConfig>(""/*TODO*/, gs_state, false);
-		Decent::Net::TlsCommLayer bsTls(bsCont, bsTlsCfg, true);
-		LOGI("TLS Handshake Successful!");
-
-		if (!bsTls.SendMsg(bsCont, pathMsg.ToString()) ||
-			!bsTls.ReceiveMsg(bsCont, msgBuf) ||
-			!Decent::Tools::ParseStr2Json(json, msgBuf))
-		{
-			return;
-		}
-
-		//TODO: Close connection.
-
-		ComMsg::Price price(json);
-		ComMsg::Quote quote(getQuote, path, price, "Trip_Planner_Part_1_Payment");
-		LOGI("Constructing Signed Quote...");
-		ComMsg::SignedQuote signedQuote = ComMsg::SignedQuote::SignQuote(quote, gs_state);
-
-		tls.SendMsg(connection, signedQuote.ToString());
-
-	}
-	catch (const std::exception&)
+	if (!tls.ReceiveMsg(connection, msgBuf) ||
+		!(getQuote = ParseMsg<ComMsg::GetQuote>(msgBuf)))
 	{
 		return;
 	}
+
+	return;
+	//SendQueryLog(""/*TODO*/, getQuote);
+
+	//LOGI("Finding Path...");
+	//std::vector<ComMsg::Point2D<double> > path;
+	//if (!FindPath(getQuote.GetOri(), getQuote.GetDest(), path))
+	//{
+	//	return;
+	//}
+
+	//ComMsg::Path pathMsg(path);
+
+	//LOGI("Querying Billing Service for price...");
+
+	//void* bsCont = nullptr;
+
+	////TODO: Get Connection to Billing Service
+
+	//LOGI("Connecting to a Billing Service...");
+	//std::shared_ptr<Decent::Ra::TlsConfig> bsTlsCfg = std::make_shared<Decent::Ra::TlsConfig>(""/*TODO*/, gs_state, false);
+	//Decent::Net::TlsCommLayer bsTls(bsCont, bsTlsCfg, true);
+	//LOGI("TLS Handshake Successful!");
+
+	//if (!bsTls.SendMsg(bsCont, pathMsg.ToString()) ||
+	//	!bsTls.ReceiveMsg(bsCont, msgBuf) ||
+	//	!Decent::Tools::ParseStr2Json(json, msgBuf))
+	//{
+	//	return;
+	//}
+
+	////TODO: Close connection.
+
+	//ComMsg::Price price(json);
+	//ComMsg::Quote quote(getQuote, path, price, "Trip_Planner_Part_1_Payment");
+	//LOGI("Constructing Signed Quote...");
+	//ComMsg::SignedQuote signedQuote = ComMsg::SignedQuote::SignQuote(quote, gs_state);
+
+	//tls.SendMsg(connection, signedQuote.ToString());
+
 }
 
 static void ProcessConfirmQuote(void* const connection, Decent::Net::TlsCommLayer& tls)
@@ -188,14 +198,15 @@ extern "C" int ecall_ride_share_tp_from_pas(void* const connection)
 	std::shared_ptr<RideShare::TlsConfig> tlsCfg = std::make_shared<RideShare::TlsConfig>(""/*TODO*/, gs_state, true);
 	Decent::Net::TlsCommLayer tls(connection, tlsCfg, true);
 
-	LOGI("TLS Handshake Successful!");
-
 	std::string msgBuf;
 	if (!tls.ReceiveMsg(connection, msgBuf) ||
 		msgBuf.size() != sizeof(EncFunc::TripPlaner::NumType))
 	{
+		LOGI("Recv size: %llu", msgBuf.size());
 		return false;
 	}
+
+	LOGI("TLS Handshake Successful!");
 
 	const EncFunc::TripPlaner::NumType funcNum = *reinterpret_cast<const EncFunc::TripPlaner::NumType*>(msgBuf.data());
 

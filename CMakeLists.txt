@@ -220,6 +220,10 @@ file(GLOB_RECURSE SOURCES_PassengerMgm_App ${SOURCEDIR_PassengerMgm_App}/*.[ch]*
 file(GLOB_RECURSE SOURCES_PassengerMgm_Enc ${SOURCEDIR_PassengerMgm_Enc}/*.[ch]*)
 file(GLOB_RECURSE SOURCES_PassengerMgm_EDL ${SOURCEDIR_PassengerMgm_Enc}/*.edl)
 
+# Passenger Files:
+set(SOURCEDIR_Passenger ${SOURCEDIR}/Passenger)
+file(GLOB_RECURSE SOURCES_Passenger ${SOURCEDIR_Passenger}/*.[ch]*)
+
 
 #==========================================================
 #   Setup filters
@@ -257,14 +261,14 @@ endif()
 #   Enclave Projects
 #==========================================================
 
-set(Proj_Name_List TripPlaner PassengerMgm)
+set(Enc_Proj_Name_List TripPlaner PassengerMgm)
 
-###########################################################
-### EDL
-###########################################################
+foreach(Proj_Name IN ITEMS ${Enc_Proj_Name_List})
 
-foreach(Proj_Name IN ITEMS ${Proj_Name_List})
-
+	###########################################################
+	### EDL
+	###########################################################
+	
 	set(EDL_T_SRC_OUTPUT ${SOURCEDIR_${Proj_Name}_Enc}/Enclave_t.h ${SOURCEDIR_${Proj_Name}_Enc}/Enclave_t.c)
 	set(EDL_U_SRC_OUTPUT ${SOURCEDIR_${Proj_Name}_App}/Enclave_u.h ${SOURCEDIR_${Proj_Name}_App}/Enclave_u.c)
 
@@ -363,4 +367,37 @@ foreach(Proj_Name IN ITEMS ${Proj_Name_List})
 	)
 
 	add_dependencies(${Proj_Name}_App ${Proj_Name}_Enclave)
+endforeach()
+
+set(Nor_Proj_Name_List Passenger)
+
+foreach(Proj_Name IN ITEMS ${Nor_Proj_Name_List})
+
+	###########################################################
+	### App
+	###########################################################
+
+	add_executable(${Proj_Name} ${SOURCES_Common} ${SOURCES_Common_App} ${SOURCES_${Proj_Name}})
+	#includes:
+	target_include_directories(${Proj_Name} PRIVATE ${TCLAP_INCLUDE_DIR})
+	#defines:
+	target_compile_definitions(${Proj_Name} PRIVATE ${COMMON_APP_DEFINES})
+	#linker flags:
+	set_target_properties(${Proj_Name} PROPERTIES LINK_FLAGS_DEBUG "${APP_DEBUG_LINKER_OPTIONS}")
+	set_target_properties(${Proj_Name} PROPERTIES LINK_FLAGS_DEBUGSIMULATION "${APP_DEBUG_LINKER_OPTIONS}")
+	set_target_properties(${Proj_Name} PROPERTIES LINK_FLAGS_RELEASE "${APP_RELEASE_LINKER_OPTIONS}")
+
+	target_link_libraries(${Proj_Name} 
+		${COMMON_STANDARD_LIBRARIES} 
+		#IntelSGX::SDK_Untrusted
+		DecentRa_App_App 
+		jsoncpp_lib_static 
+		mbedcrypto 
+		mbedx509 
+		mbedtls 
+		Boost::filesystem
+		Boost::system
+		${Additional_Sys_Lib}
+	)
+
 endforeach()

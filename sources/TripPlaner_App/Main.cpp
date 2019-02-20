@@ -9,6 +9,7 @@
 #include <boost/asio/ip/address_v4.hpp>
 #include <json/json.h>
 #include <sgx_quote.h>
+#include <boost/filesystem.hpp>
 
 #include <DecentApi/CommonApp/Common.h>
 
@@ -16,16 +17,39 @@
 #include <DecentApi/CommonApp/Net/TCPConnection.h>
 #include <DecentApi/CommonApp/Net/TCPServer.h>
 #include <DecentApi/CommonApp/Net/SmartServer.h>
-#include <DecentApi/CommonApp/Ra/WhiteList/Requester.h>
+#include <DecentApi/CommonApp/Ra/Messages.h>
+#include <DecentApi/CommonApp/Tools/DiskFile.h>
+#include <DecentApi/CommonApp/Tools/ConfigManager.h>
 
+#include <DecentApi/Common/Ra/WhiteList/HardCoded.h>
 #include <DecentApi/Common/Tools/JsonTools.h>
 
+#include "../Common/AppNames.h"
 #include "../Common_App/RideSharingMessages.h"
 
 #include "TripPlanerApp.h"
 
+using namespace RideShare;
 using namespace Decent;
 using namespace Decent::Tools;
+using namespace Decent::Ra::Message;
+
+bool GetConfigurationJsonString(const std::string& filePath, std::string& outJsonStr)
+{
+	DiskFile file(filePath, FileBase::Mode::Read, FileBase::sk_deferOpen);
+
+	try
+	{
+		file.Open();
+		outJsonStr.resize(file.GetFileSize());
+		file.ReadBlockExactSize(outJsonStr);
+		return true;
+	}
+	catch (const FileException&)
+	{
+		return false;
+	}
+}
 
 /**
  * \brief	Main entry-point for this application
@@ -39,44 +63,52 @@ int main(int argc, char ** argv)
 {
 	std::cout << "================ Trip Planer ================" << std::endl;
 
-	TCLAP::CmdLine cmd("Decent Remote Attestation", ' ', "ver", true);
+	TCLAP::CmdLine cmd("Trip Planer", ' ', "ver", true);
 
-#ifndef DEBUG
-	TCLAP::ValueArg<uint16_t>  argServerPort("p", "port", "Port number for on-coming local connection.", true, 0, "[0-65535]");
-	cmd.add(argServerPort);
-#else
-	TCLAP::ValueArg<int> testOpt("t", "test-opt", "Test Option Number", false, 0, "A single digit number.");
-	cmd.add(testOpt);
-#endif
+	TCLAP::ValueArg<std::string> configPathArg("c", "config", "Path to the configuration file.", false, "Config.json", "String");
+	TCLAP::ValueArg<std::string> wlKeyArg("w", "wl-key", "Key for the loaded whitelist.", false, "WhiteListKey", "String");
+	TCLAP::SwitchArg isSendWlArg("s", "not-send-wl", "Do not send whitelist to Decent Server.", true);
+	cmd.add(configPathArg);
+	cmd.add(wlKeyArg);
+	cmd.add(isSendWlArg);
 
 	cmd.parse(argc, argv);
 
-#ifndef DEBUG
-	std::string serverAddr = "127.0.0.1";
-	uint16_t serverPort = argServerPort.getValue();
-	std::string localAddr = "DecentServerLocal";
-#else
-	uint16_t rootServerPort = 57755U;
+	std::string configJsonStr;
+	if (!GetConfigurationJsonString(configPathArg.getValue(), configJsonStr))
+	{
+		std::cout << "Failed to load configuration file." << std::endl;
+		return 1;
+	}
+	ConfigManager configManager(configJsonStr);
 
-	std::string serverAddr = "127.0.0.1";
-	uint16_t serverPort = rootServerPort + testOpt.getValue();
-	std::string localAddr = "DecentServerLocal";
-#endif
+	const ConfigItem& decentServerItem = configManager.GetItem(Ra::WhiteList::sk_nameDecentServer);
+	const ConfigItem& tripPlannerItem = configManager.GetItem(AppNames::sk_tripPlanner);
 
-	uint32_t serverIp = boost::asio::ip::address_v4::from_string(serverAddr).to_uint();
-	//Net::SmartServer smartServer;
 
-	std::unique_ptr<Net::Connection> serverCon = std::make_unique<Net::TCPConnection>(serverIp, serverPort);
+	uint32_t serverIp = boost::asio::ip::address_v4::from_string(decentServerItem.GetAddr()).to_uint();
+	std::unique_ptr<Net::Connection> serverCon;
 
-	const Ra::WhiteList::Requester& wlReq = Ra::WhiteList::Requester::Get();
-	wlReq.SendRequest(*serverCon);
+	if (isSendWlArg.getValue())
+	{
+		serverCon = std::make_unique<Net::TCPConnection>(serverIp, decentServerItem.GetPort());
+		serverCon->SendPack(LoadWhiteList(wlKeyArg.getValue(), configManager.GetLoadedWhiteListStr()));
+	}
 
-	serverCon = std::make_unique<Net::TCPConnection>(serverIp, serverPort);
+	serverCon = std::make_unique<Net::TCPConnection>(serverIp, decentServerItem.GetPort());
 
 	std::shared_ptr<TripPlanerApp> enclave(
 		std::make_shared<TripPlanerApp>(
-			ENCLAVE_FILENAME, KnownFolderType::LocalAppDataEnclave, TOKEN_FILENAME, wlReq.GetKey(), *serverCon));
+			ENCLAVE_FILENAME, KnownFolderType::LocalAppDataEnclave, TOKEN_FILENAME, wlKeyArg.getValue(), *serverCon));
 
+
+	Net::SmartServer smartServer;
+
+	uint32_t tripPlannerIp = boost::asio::ip::address_v4::from_string(tripPlannerItem.GetAddr()).to_uint();
+	std::unique_ptr<Net::Server> server(std::make_unique<Net::TCPServer>(tripPlannerIp, tripPlannerItem.GetPort()));
+	
+	smartServer.AddServer(server, enclave);
+	smartServer.RunUtilUserTerminate();
 	
 
 	printf("Exit ...\n");

@@ -1,8 +1,10 @@
 //#include "Enclave_t.h"
 
 #include <mutex>
+#include <memory>
 
 #include <DecentApi/Common/Common.h>
+#include <DecentApi/Common/make_unique.h>
 #include <DecentApi/Common/Ra/TlsConfig.h>
 #include <DecentApi/Common/Ra/States.h>
 #include <DecentApi/Common/Ra/KeyContainer.h>
@@ -48,6 +50,23 @@ namespace
 	std::map<std::string, PasProfileItem> gs_pasProfiles;
 	const std::map<std::string, PasProfileItem>& gsk_pasProfiles = gs_pasProfiles;
 	std::mutex gs_pasProfilesMutex;
+
+	template<typename MsgType>
+	static std::unique_ptr<MsgType> ParseMsg(const std::string& msgStr)
+	{
+		//LOGW("Parsing Msg (size = %llu): \n%s\n", msgStr.size(), msgStr.c_str());
+		try
+		{
+			rapidjson::Document json;
+			return Decent::Tools::ParseStr2Json(json, msgStr) ? 
+				Decent::Tools::make_unique<MsgType>(json) :
+				nullptr;
+		}
+		catch (const std::exception&)
+		{
+			return nullptr;
+		}
+	}
 }
 
 static void ProcessPasRegisterReq(void* const connection, Decent::Net::TlsCommLayer& tls)
@@ -55,66 +74,55 @@ static void ProcessPasRegisterReq(void* const connection, Decent::Net::TlsCommLa
 	LOGI("Processing Passenger Register Request...");
 
 	std::string msgBuf;
-	rapidjson::Document json;
 
-	try
-	{
-		if (!tls.ReceiveMsg(connection, msgBuf) ||
-			!Decent::Tools::ParseStr2Json(json, msgBuf))
-		{
-			return;
-		}
-
-		ComMsg::PasReg pasRegInfo(json);
-		json.Clear();
-
-		
-		const std::string& csrPem = pasRegInfo.GetCsr();
-		X509Req certReq(csrPem);
-
-		std::shared_ptr<const Decent::MbedTlsObj::ECKeyPair> prvKey = gs_state.GetKeyContainer().GetSignKeyPair();
-		std::shared_ptr<const AppX509> cert = std::dynamic_pointer_cast<const AppX509>(gs_state.GetCertContainer().GetCert());
-
-		if (!certReq.VerifySignature() ||
-			!prvKey || !*prvKey ||
-			!cert || !*cert)
-		{
-			return;
-		}
-		
-		ClientX509 clientCert(certReq.GetEcPublicKey(), *cert, *prvKey, "RideSharingClient");
-
-		if (!clientCert)
-		{
-			LOGI("Client certificate generation failed!");
-			return;
-		}
-
-		const std::string clientCertPem = clientCert.ToPemString();
-		LOGI("Client certificate is generated:\n%s\n", clientCertPem.c_str());
-
-		{
-			std::unique_lock<std::mutex> pasProfilesLock(gs_pasProfilesMutex);
-			auto it = gsk_pasProfiles.find(clientCertPem);
-			if (it != gsk_pasProfiles.cend())
-			{
-				LOGI("Client profile already exist.");
-				return;
-			}
-
-			gs_pasProfiles.insert(std::make_pair(clientCertPem,
-				PasProfileItem(pasRegInfo.GetContact().GetName(), pasRegInfo.GetContact().GetPhone(), pasRegInfo.GetPayment())));
-
-			LOGI("Client profile added. Profile store size: %llu.", gsk_pasProfiles.size());
-		}
-
-		tls.SendMsg(connection, clientCertPem);
-
-	}
-	catch (const std::exception&)
+	std::unique_ptr<ComMsg::PasReg> pasRegInfo;
+	if (!tls.ReceiveMsg(connection, msgBuf) ||
+		!(pasRegInfo = ParseMsg<ComMsg::PasReg>(msgBuf)))
 	{
 		return;
 	}
+
+	const std::string& csrPem = pasRegInfo->GetCsr();
+	X509Req certReq(csrPem);
+
+	std::shared_ptr<const Decent::MbedTlsObj::ECKeyPair> prvKey = gs_state.GetKeyContainer().GetSignKeyPair();
+	std::shared_ptr<const AppX509> cert = std::dynamic_pointer_cast<const AppX509>(gs_state.GetCertContainer().GetCert());
+
+	if (!certReq.VerifySignature() ||
+		!prvKey || !*prvKey ||
+		!cert || !*cert)
+	{
+		return;
+	}
+
+	ClientX509 clientCert(certReq.GetEcPublicKey(), *cert, *prvKey, "RideSharingClient");
+
+	if (!clientCert)
+	{
+		LOGI("Client certificate generation failed!");
+		return;
+	}
+
+	const std::string clientCertPem = clientCert.ToPemString();
+	LOGI("Client certificate is generated:\n%s\n", clientCertPem.c_str());
+
+	{
+		std::unique_lock<std::mutex> pasProfilesLock(gs_pasProfilesMutex);
+		auto it = gsk_pasProfiles.find(clientCertPem);
+		if (it != gsk_pasProfiles.cend())
+		{
+			LOGI("Client profile already exist.");
+			return;
+		}
+
+		gs_pasProfiles.insert(std::make_pair(clientCertPem,
+			PasProfileItem(pasRegInfo->GetContact().GetName(), pasRegInfo->GetContact().GetPhone(), pasRegInfo->GetPayment())));
+
+		LOGI("Client profile added. Profile store size: %llu.", gsk_pasProfiles.size());
+	}
+
+	tls.SendMsg(connection, clientCertPem);
+
 }
 
 extern "C" int ecall_ride_share_pm_from_pas(void* const connection)
@@ -128,7 +136,7 @@ extern "C" int ecall_ride_share_pm_from_pas(void* const connection)
 	if (!pasTls.ReceiveMsg(connection, msgBuf) ||
 		msgBuf.size() != sizeof(EncFunc::PassengerMgm::NumType))
 	{
-		LOGI("TLS Handshake Failed!");
+		LOGI("Recv size: %llu", msgBuf.size());
 		return false;
 	}
 
