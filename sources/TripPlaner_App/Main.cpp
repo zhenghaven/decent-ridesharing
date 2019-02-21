@@ -19,6 +19,7 @@
 
 #include "../Common/AppNames.h"
 #include "../Common_App/Tools.h"
+#include "../Common_App/ConnectionManager.h"
 #include "../Common_App/RideSharingMessages.h"
 
 #include "TripPlanerApp.h"
@@ -59,6 +60,7 @@ int main(int argc, char ** argv)
 		return 1;
 	}
 	ConfigManager configManager(configJsonStr);
+	ConnectionManager::SetConfigManager(configManager);
 
 	const ConfigItem& decentServerItem = configManager.GetItem(Ra::WhiteList::sk_nameDecentServer);
 	const ConfigItem& tripPlannerItem = configManager.GetItem(AppNames::sk_tripPlanner);

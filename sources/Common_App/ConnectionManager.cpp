@@ -2,6 +2,7 @@
 
 #include <boost/asio/ip/address_v4.hpp>
 
+#include <DecentApi/Common/Common.h>
 #include <DecentApi/CommonApp/Net/TCPConnection.h>
 #include <DecentApi/CommonApp/Tools/ConfigManager.h>
 
@@ -18,12 +19,6 @@ namespace
 	static inline std::unique_ptr<Connection> InternalGetConnection(const ConfigItem& configItem, const SmartMessages& hsMsg, uint32_t* outIpAddr, uint16_t* outPort)
 	{
 		uint32_t ip = boost::asio::ip::address_v4::from_string(configItem.GetAddr()).to_uint();
-		std::unique_ptr<Connection> connection = std::make_unique<TCPConnection>(ip, configItem.GetPort());
-
-		if (connection)
-		{
-			connection->SendPack(hsMsg);
-		}
 		if (outIpAddr)
 		{
 			*outIpAddr = ip;
@@ -32,7 +27,22 @@ namespace
 		{
 			*outPort = configItem.GetPort();
 		}
-		return std::move(connection);
+
+		try
+		{
+			std::unique_ptr<Connection> connection = std::make_unique<TCPConnection>(ip, configItem.GetPort());
+
+			if (connection)
+			{
+				connection->SendPack(hsMsg);
+			}
+			return std::move(connection);
+		}
+		catch (const std::exception& e)
+		{
+			LOGW("Failed to establish connection. (Err Msg: %s)", e.what());
+			return nullptr;
+		}
 	}
 }
 

@@ -166,31 +166,21 @@ static void LogQuery(void* const connection, Decent::Net::TlsCommLayer& tls)
 	LOGI("Logging Passenger Query...");
 
 	std::string msgBuf;
-	rapidjson::Document json;
 
-	try
-	{
-		if (!tls.ReceiveMsg(connection, msgBuf) ||
-			!Decent::Tools::ParseStr2Json(json, msgBuf))
-		{
-			return;
-		}
-
-		ComMsg::PasQueryLog queryLog(json);
-		json.Clear();
-
-		const ComMsg::GetQuote& getQuote = queryLog.GetGetQuote();
-
-		LOGI("Logged Passenger Query:");
-		LOGI("Passenger ID:\n\t%s\n", queryLog.GetUserId().c_str());
-		LOGI("Origin:      (%f, %f)\n", getQuote.GetOri().GetX(), getQuote.GetOri().GetY());
-		LOGI("Destination: (%f, %f)\n", getQuote.GetDest().GetX(), getQuote.GetDest().GetY());
-
-	}
-	catch (const std::exception&)
+	std::unique_ptr<ComMsg::PasQueryLog> queryLog;
+	if (!tls.ReceiveMsg(connection, msgBuf) ||
+		!(queryLog = ParseMsg<ComMsg::PasQueryLog>(msgBuf)))
 	{
 		return;
 	}
+
+	const ComMsg::GetQuote& getQuote = queryLog->GetGetQuote();
+
+	LOGI("Logged Passenger Query:");
+	LOGI("Passenger ID:\n%s", queryLog->GetUserId().c_str());
+	LOGI("Origin:      (%f, %f)", getQuote.GetOri().GetX(), getQuote.GetOri().GetY());
+	LOGI("Destination: (%f, %f)", getQuote.GetDest().GetX(), getQuote.GetDest().GetY());
+
 }
 
 extern "C" int ecall_ride_share_pm_from_trip_planner(void* const connection)
@@ -206,7 +196,7 @@ extern "C" int ecall_ride_share_pm_from_trip_planner(void* const connection)
 	if (!tpTls.ReceiveMsg(connection, msgBuf) ||
 		msgBuf.size() != sizeof(NumType))
 	{
-		LOGI("TLS Handshake Failed!");
+		LOGW("Recv size: %llu", msgBuf.size());
 		return false;
 	}
 
@@ -233,8 +223,6 @@ static void RequestPaymentInfo(void* const connection, Decent::Net::TlsCommLayer
 	LOGI("Processing payment info request...");
 
 	std::string msgBuf;
-	rapidjson::Document json;
-
 	if (!tls.ReceiveMsg(connection, msgBuf))
 	{
 		return;
@@ -274,7 +262,7 @@ extern "C" int ecall_ride_share_pm_from_payment(void* const connection)
 	if (!payTls.ReceiveMsg(connection, msgBuf) ||
 		msgBuf.size() != sizeof(NumType))
 	{
-		LOGI("TLS Handshake Failed!");
+		LOGW("Recv size: %llu", msgBuf.size());
 		return false;
 	}
 
