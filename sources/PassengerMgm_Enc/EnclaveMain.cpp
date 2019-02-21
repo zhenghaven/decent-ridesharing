@@ -14,10 +14,11 @@
 
 #include <rapidjson/document.h>
 
-#include "../Common/RideSharingFuncNums.h"
-#include "../Common/RideSharingMessages.h"
 #include "../Common/Crypto.h"
 #include "../Common/TlsConfig.h"
+#include "../Common/AppNames.h"
+#include "../Common/RideSharingFuncNums.h"
+#include "../Common/RideSharingMessages.h"
 
 using namespace RideShare;
 using namespace Decent::Ra;
@@ -127,14 +128,16 @@ static void ProcessPasRegisterReq(void* const connection, Decent::Net::TlsCommLa
 
 extern "C" int ecall_ride_share_pm_from_pas(void* const connection)
 {
+	using namespace EncFunc::PassengerMgm;
+
 	LOGI("Processing message from passenger...");
 
-	std::shared_ptr<Decent::Ra::TlsConfig> pasTlsCfg = std::make_shared<Decent::Ra::TlsConfig>(""/*TODO*/, gs_state, true);
+	std::shared_ptr<Decent::Ra::TlsConfig> pasTlsCfg = std::make_shared<Decent::Ra::TlsConfig>("NaN", gs_state, true);
 	Decent::Net::TlsCommLayer pasTls(connection, pasTlsCfg, false);
 
 	std::string msgBuf;
 	if (!pasTls.ReceiveMsg(connection, msgBuf) ||
-		msgBuf.size() != sizeof(EncFunc::PassengerMgm::NumType))
+		msgBuf.size() != sizeof(NumType))
 	{
 		LOGI("Recv size: %llu", msgBuf.size());
 		return false;
@@ -142,13 +145,13 @@ extern "C" int ecall_ride_share_pm_from_pas(void* const connection)
 
 	LOGI("TLS Handshake Successful!");
 
-	const EncFunc::PassengerMgm::NumType funcNum = *reinterpret_cast<const EncFunc::PassengerMgm::NumType*>(msgBuf.data());
+	const NumType funcNum = EncFunc::GetNum<EncFunc::PassengerMgm::NumType>(msgBuf);
 
 	LOGI("Request Function: %d.", funcNum);
 
 	switch (funcNum)
 	{
-	case EncFunc::PassengerMgm::k_userReg:
+	case k_userReg:
 		ProcessPasRegisterReq(connection, pasTls);
 		break;
 	default:
@@ -192,14 +195,16 @@ static void LogQuery(void* const connection, Decent::Net::TlsCommLayer& tls)
 
 extern "C" int ecall_ride_share_pm_from_trip_planner(void* const connection)
 {
+	using namespace EncFunc::PassengerMgm;
+
 	LOGI("Processing message from Trip Planner...");
 
-	std::shared_ptr<Decent::Ra::TlsConfig> tpTlsCfg = std::make_shared<Decent::Ra::TlsConfig>(""/*TODO*/, gs_state, true);
+	std::shared_ptr<Decent::Ra::TlsConfig> tpTlsCfg = std::make_shared<Decent::Ra::TlsConfig>(AppNames::sk_tripPlanner, gs_state, true);
 	Decent::Net::TlsCommLayer tpTls(connection, tpTlsCfg, true);
 
 	std::string msgBuf;
 	if (!tpTls.ReceiveMsg(connection, msgBuf) ||
-		msgBuf.size() != sizeof(EncFunc::PassengerMgm::NumType))
+		msgBuf.size() != sizeof(NumType))
 	{
 		LOGI("TLS Handshake Failed!");
 		return false;
@@ -207,13 +212,13 @@ extern "C" int ecall_ride_share_pm_from_trip_planner(void* const connection)
 
 	LOGI("TLS Handshake Successful!");
 
-	const EncFunc::PassengerMgm::NumType funcNum = *reinterpret_cast<const EncFunc::PassengerMgm::NumType*>(msgBuf.data());
+	const NumType funcNum = EncFunc::GetNum<NumType>(msgBuf);
 
 	LOGI("Request Function: %d.", funcNum);
 
 	switch (funcNum)
 	{
-	case EncFunc::PassengerMgm::k_logQuery:
+	case k_logQuery:
 		LogQuery(connection, tpTls);
 		break;
 	default:
@@ -258,14 +263,16 @@ static void RequestPaymentInfo(void* const connection, Decent::Net::TlsCommLayer
 
 extern "C" int ecall_ride_share_pm_from_payment(void* const connection)
 {
+	using namespace EncFunc::PassengerMgm;
+
 	LOGI("Processing message from payment services...");
 
-	std::shared_ptr<Decent::Ra::TlsConfig> tpTlsCfg = std::make_shared<Decent::Ra::TlsConfig>(""/*TODO*/, gs_state, true);
-	Decent::Net::TlsCommLayer tpTls(connection, tpTlsCfg, true);
+	std::shared_ptr<Decent::Ra::TlsConfig> payTlsCfg = std::make_shared<Decent::Ra::TlsConfig>(AppNames::sk_payment, gs_state, true);
+	Decent::Net::TlsCommLayer payTls(connection, payTlsCfg, true);
 
 	std::string msgBuf;
-	if (!tpTls.ReceiveMsg(connection, msgBuf) ||
-		msgBuf.size() != sizeof(EncFunc::PassengerMgm::NumType))
+	if (!payTls.ReceiveMsg(connection, msgBuf) ||
+		msgBuf.size() != sizeof(NumType))
 	{
 		LOGI("TLS Handshake Failed!");
 		return false;
@@ -273,14 +280,14 @@ extern "C" int ecall_ride_share_pm_from_payment(void* const connection)
 
 	LOGI("TLS Handshake Successful!");
 
-	const EncFunc::PassengerMgm::NumType funcNum = *reinterpret_cast<const EncFunc::PassengerMgm::NumType*>(msgBuf.data());
+	const NumType funcNum = EncFunc::GetNum<NumType>(msgBuf);
 
 	LOGI("Request Function: %d.", funcNum);
 
 	switch (funcNum)
 	{
-	case EncFunc::PassengerMgm::k_getPayInfo:
-		LogQuery(connection, tpTls);
+	case k_getPayInfo:
+		RequestPaymentInfo(connection, payTls);
 		break;
 	default:
 		break;

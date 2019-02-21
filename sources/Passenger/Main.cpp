@@ -9,16 +9,24 @@
 #include <DecentApi/Common/Ra/TlsConfig.h>
 #include <DecentApi/Common/Ra/KeyContainer.h>
 #include <DecentApi/Common/Ra/CertContainer.h>
+#include <DecentApi/Common/Ra/WhiteList/Loaded.h>
+
 #include <DecentApi/CommonApp/Net/TCPConnection.h>
+#include <DecentApi/CommonApp/Tools/ConfigManager.h>
 
 #include "../Common/Crypto.h"
 #include "../Common/TlsConfig.h"
+#include "../Common/AppNames.h"
 #include "../Common/RideSharingMessages.h"
 #include "../Common/RideSharingFuncNums.h"
+#include "../Common_App/Tools.h"
 #include "../Common_App/RideSharingMessages.h"
 
-using namespace Decent;
 using namespace RideShare;
+using namespace RideShare::Tools;
+using namespace Decent;
+using namespace Decent::Tools;
+using namespace Decent::Ra::WhiteList;
 
 bool RegesterCert(Net::Connection& con);
 bool SendQuery(Net::Connection& con);
@@ -37,30 +45,29 @@ int main(int argc, char ** argv)
 
 	TCLAP::CmdLine cmd("Passenger", ' ', "ver", true);
 
-#ifndef DEBUG
-	TCLAP::ValueArg<uint16_t>  argServerPort("p", "port", "Port number for on-coming local connection.", true, 0, "[0-65535]");
-	cmd.add(argServerPort);
-#else
-	TCLAP::ValueArg<int> testOpt("t", "test-opt", "Test Option Number", false, 0, "A single digit number.");
-	cmd.add(testOpt);
-#endif
+	TCLAP::ValueArg<std::string> configPathArg("c", "config", "Path to the configuration file.", false, "Config.json", "String");
+	cmd.add(configPathArg);
 
 	cmd.parse(argc, argv);
 
-#ifndef DEBUG
-	std::string appAddr = "127.0.0.1";
-	uint16_t appPort = argServerPort.getValue();
-#else
-	uint16_t rootAppPort = 57755U;
+	std::string configJsonStr;
+	if (!GetConfigurationJsonString(configPathArg.getValue(), configJsonStr))
+	{
+		std::cout << "Failed to load configuration file." << std::endl;
+		return 1;
+	}
+	ConfigManager configManager(configJsonStr);
 
-	std::string appAddr = "127.0.0.1";
-	uint16_t pasMgmPort = rootAppPort + testOpt.getValue() + 1;
-	uint16_t tpPort = rootAppPort + testOpt.getValue() + 2;
-#endif
+	Loaded loadedWhiteList(configManager.GetLoadedWhiteList().GetMap());
 
-	uint32_t appIp = boost::asio::ip::address_v4::from_string(appAddr).to_uint();
-
+	//Setting Loaded whitelist.
 	Ra::States& state = Ra::States::Get();
+	state.GetLoadedWhiteList(&loadedWhiteList);
+
+	const ConfigItem& pasMgmItem = configManager.GetItem(AppNames::sk_passengerMgm);
+	const ConfigItem& tripPlannerItem = configManager.GetItem(AppNames::sk_tripPlanner);
+
+	//Setting up a temporary certificate.
 	std::shared_ptr<Decent::Ra::ServerX509> cert = std::make_shared<Decent::Ra::ServerX509>(
 		*state.GetKeyContainer().GetSignKeyPair(), "HashTemp", "PlatformTemp", "ReportTemp"
 		);
@@ -70,13 +77,15 @@ int main(int argc, char ** argv)
 	}
 	state.GetCertContainer().SetCert(cert);
 
-	std::unique_ptr<Net::Connection> appCon = std::make_unique<Net::TCPConnection>(appIp, pasMgmPort);
+	uint32_t pasMgmIp = boost::asio::ip::address_v4::from_string(pasMgmItem.GetAddr()).to_uint();
+	std::unique_ptr<Net::Connection> appCon = std::make_unique<Net::TCPConnection>(pasMgmIp, pasMgmItem.GetPort());
 	if (!RegesterCert(*appCon))
 	{
 		return 1;
 	}
 
-	appCon = std::make_unique<Net::TCPConnection>(appIp, tpPort);
+	uint32_t tripPlannerIp = boost::asio::ip::address_v4::from_string(tripPlannerItem.GetAddr()).to_uint();
+	appCon = std::make_unique<Net::TCPConnection>(tripPlannerIp, tripPlannerItem.GetPort());
 	if (!SendQuery(*appCon))
 	{
 		return 1;
@@ -96,13 +105,10 @@ bool RegesterCert(Net::Connection& con)
 
 	con.SendPack(FromPassenger());
 
-	std::shared_ptr<Decent::Ra::TlsConfig> pasTlsCfg = std::make_shared<Decent::Ra::TlsConfig>(""/*TODO*/, state);
+	std::shared_ptr<Decent::Ra::TlsConfig> pasTlsCfg = std::make_shared<Decent::Ra::TlsConfig>(AppNames::sk_passengerMgm, state);
 	Decent::Net::TlsCommLayer pasTls(&con, pasTlsCfg, true);
 
-	std::string msgBuf;
-	msgBuf.resize(sizeof(EncFunc::PassengerMgm::NumType));
-	EncFunc::PassengerMgm::NumType& funcNum = *reinterpret_cast<EncFunc::PassengerMgm::NumType*>(&msgBuf[0]);
-	funcNum = EncFunc::PassengerMgm::k_userReg;
+	std::string msgBuf = EncFunc::GetMsgString(EncFunc::PassengerMgm::k_userReg);
 
 	if (!pasTls.SendMsg(&con, msgBuf) ||
 		!pasTls.SendMsg(&con, regMsg.ToString()) ||
@@ -131,16 +137,13 @@ bool SendQuery(Net::Connection& con)
 
 	con.SendPack(FromPassenger());
 
-	std::shared_ptr<Decent::Ra::TlsConfig> pasTlsCfg = std::make_shared<Decent::Ra::TlsConfig>(""/*TODO*/, state, false);
-	Decent::Net::TlsCommLayer pasTls(&con, pasTlsCfg, true);
+	std::shared_ptr<Decent::Ra::TlsConfig> tpTlsCfg = std::make_shared<Decent::Ra::TlsConfig>(AppNames::sk_tripPlanner, state, false);
+	Decent::Net::TlsCommLayer tpTls(&con, tpTlsCfg, true);
 
-	std::string msgBuf;
-	msgBuf.resize(sizeof(EncFunc::TripPlaner::NumType));
-	EncFunc::TripPlaner::NumType& funcNum = *reinterpret_cast<EncFunc::TripPlaner::NumType*>(&msgBuf[0]);
-	funcNum = EncFunc::TripPlaner::k_getQuote;
+	std::string msgBuf = EncFunc::GetMsgString(EncFunc::TripPlaner::k_getQuote);
 
-	if (!pasTls.SendMsg(&con, msgBuf) ||
-		!pasTls.SendMsg(&con, getQuote.ToString()))
+	if (!tpTls.SendMsg(&con, msgBuf) ||
+		!tpTls.SendMsg(&con, getQuote.ToString()))
 	{
 		return false;
 	}

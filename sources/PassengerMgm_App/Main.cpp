@@ -1,15 +1,10 @@
-#include <cstdio>
-#include <cstring>
-
 #include <string>
 #include <memory>
 #include <iostream>
 
 #include <tclap/CmdLine.h>
 #include <boost/asio/ip/address_v4.hpp>
-#include <json/json.h>
 #include <sgx_quote.h>
-#include <boost/filesystem.hpp>
 
 #include <DecentApi/CommonApp/Common.h>
 
@@ -18,38 +13,21 @@
 #include <DecentApi/CommonApp/Net/TCPServer.h>
 #include <DecentApi/CommonApp/Net/SmartServer.h>
 #include <DecentApi/CommonApp/Ra/Messages.h>
-#include <DecentApi/CommonApp/Tools/DiskFile.h>
 #include <DecentApi/CommonApp/Tools/ConfigManager.h>
 
 #include <DecentApi/Common/Ra/WhiteList/HardCoded.h>
-#include <DecentApi/Common/Tools/JsonTools.h>
 
 #include "../Common/AppNames.h"
+#include "../Common_App/Tools.h"
 #include "../Common_App/RideSharingMessages.h"
 
 #include "PassengerMgmApp.h"
 
 using namespace RideShare;
+using namespace RideShare::Tools;
 using namespace Decent;
 using namespace Decent::Tools;
 using namespace Decent::Ra::Message;
-
-bool GetConfigurationJsonString(const std::string& filePath, std::string& outJsonStr)
-{
-	DiskFile file(filePath, FileBase::Mode::Read, FileBase::sk_deferOpen);
-
-	try
-	{
-		file.Open();
-		outJsonStr.resize(file.GetFileSize());
-		file.ReadBlockExactSize(outJsonStr);
-		return true;
-	}
-	catch (const FileException&)
-	{
-		return false;
-	}
-}
 
 /**
  * \brief	Main entry-point for this application
