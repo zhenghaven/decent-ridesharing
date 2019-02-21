@@ -20,6 +20,7 @@
 #include "../Common/RideSharingMessages.h"
 #include "../Common/RideSharingFuncNums.h"
 #include "../Common_App/Tools.h"
+#include "../Common_App/ConnectionManager.h"
 #include "../Common_App/RideSharingMessages.h"
 
 using namespace RideShare;
@@ -57,15 +58,13 @@ int main(int argc, char ** argv)
 		return 1;
 	}
 	ConfigManager configManager(configJsonStr);
+	ConnectionManager::SetConfigManager(configManager);
 
 	Loaded loadedWhiteList(configManager.GetLoadedWhiteList().GetMap());
 
 	//Setting Loaded whitelist.
 	Ra::States& state = Ra::States::Get();
 	state.GetLoadedWhiteList(&loadedWhiteList);
-
-	const ConfigItem& pasMgmItem = configManager.GetItem(AppNames::sk_passengerMgm);
-	const ConfigItem& tripPlannerItem = configManager.GetItem(AppNames::sk_tripPlanner);
 
 	//Setting up a temporary certificate.
 	std::shared_ptr<Decent::Ra::ServerX509> cert = std::make_shared<Decent::Ra::ServerX509>(
@@ -77,15 +76,15 @@ int main(int argc, char ** argv)
 	}
 	state.GetCertContainer().SetCert(cert);
 
-	uint32_t pasMgmIp = boost::asio::ip::address_v4::from_string(pasMgmItem.GetAddr()).to_uint();
-	std::unique_ptr<Net::Connection> appCon = std::make_unique<Net::TCPConnection>(pasMgmIp, pasMgmItem.GetPort());
+	std::unique_ptr<Net::Connection> appCon;
+
+	appCon = ConnectionManager::GetConnection2PassengerMgm(FromPassenger());
 	if (!RegesterCert(*appCon))
 	{
 		return 1;
 	}
 
-	uint32_t tripPlannerIp = boost::asio::ip::address_v4::from_string(tripPlannerItem.GetAddr()).to_uint();
-	appCon = std::make_unique<Net::TCPConnection>(tripPlannerIp, tripPlannerItem.GetPort());
+	appCon = ConnectionManager::GetConnection2TripPlanner(FromPassenger());
 	if (!SendQuery(*appCon))
 	{
 		return 1;
@@ -102,8 +101,6 @@ bool RegesterCert(Net::Connection& con)
 	Ra::X509Req certReq(*state.GetKeyContainer().GetSignKeyPair(), "Passenger");
 
 	ComMsg::PasReg regMsg(ComMsg::PasContact("fName lName", "1234567890"), "Passneger Payment Info XXXXX", certReq.ToPemString());
-
-	con.SendPack(FromPassenger());
 
 	std::shared_ptr<Decent::Ra::TlsConfig> pasTlsCfg = std::make_shared<Decent::Ra::TlsConfig>(AppNames::sk_passengerMgm, state);
 	Decent::Net::TlsCommLayer pasTls(&con, pasTlsCfg, true);
@@ -134,8 +131,6 @@ bool SendQuery(Net::Connection& con)
 	Ra::States& state = Ra::States::Get();
 
 	ComMsg::GetQuote getQuote(ComMsg::Point2D<double>(1.1, 1.2), ComMsg::Point2D<double>(1.3, 1.4));
-
-	con.SendPack(FromPassenger());
 
 	std::shared_ptr<Decent::Ra::TlsConfig> tpTlsCfg = std::make_shared<Decent::Ra::TlsConfig>(AppNames::sk_tripPlanner, state, false);
 	Decent::Net::TlsCommLayer tpTls(&con, tpTlsCfg, true);

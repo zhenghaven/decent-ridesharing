@@ -14,4 +14,12 @@ enclave {
 		public int ecall_ride_share_tp_from_pas([user_check] void* connection);
 	};
 
+	untrusted
+	{
+		void ocall_ride_share_cnt_mgr_close_cnt([user_check] void* cnt_ptr);
+
+		void ocall_ride_share_cnt_mgr_get_pas_mgm([out] void** out_cnt_ptr);
+		void ocall_ride_share_cnt_mgr_get_billing([out] void** out_cnt_ptr);
+		void ocall_ride_share_cnt_mgr_get_trip_matcher([out] void** out_cnt_ptr, [out] uint32_t* out_ip, [out] uint16_t* out_port);
+	};
 };
