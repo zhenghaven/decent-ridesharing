@@ -31,7 +31,13 @@ namespace RideShare
 			typedef uint8_t NumType;
 			constexpr NumType k_userReg     = 0;
 			constexpr NumType k_logQuery    = 1;
-			constexpr NumType k_getPayInfo  = 1;
+			constexpr NumType k_getPayInfo  = 2;
+		}
+
+		namespace Billing
+		{
+			typedef uint8_t NumType;
+			constexpr NumType k_calPrice = 0;
 		}
 	}
 }

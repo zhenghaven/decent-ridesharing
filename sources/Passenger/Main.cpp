@@ -1,9 +1,11 @@
 
 #include <tclap/CmdLine.h>
 #include <boost/asio/ip/address_v4.hpp>
+#include <json/json.h>
 
 #include <DecentApi/Common/Common.h>
 #include <DecentApi/Common/Net/TlsCommLayer.h>
+#include <DecentApi/Common/Tools/JsonTools.h>
 #include <DecentApi/Common/Ra/States.h>
 #include <DecentApi/Common/Ra/Crypto.h>
 #include <DecentApi/Common/Ra/TlsConfig.h>
@@ -31,6 +33,22 @@ using namespace Decent::Ra::WhiteList;
 
 bool RegesterCert(Net::Connection& con);
 bool SendQuery(Net::Connection& con);
+
+template<typename MsgType>
+static std::unique_ptr<MsgType> ParseMsg(const std::string& msgStr)
+{
+	try
+	{
+		JsonDoc json;
+		return ParseStr2Json(json, msgStr) ?
+			std::make_unique<MsgType>(json) :
+			nullptr;
+	}
+	catch (const std::exception&)
+	{
+		return nullptr;
+	}
+}
 
 /**
 * \brief	Main entry-point for this application
@@ -96,6 +114,7 @@ int main(int argc, char ** argv)
 
 bool RegesterCert(Net::Connection& con)
 {
+	using namespace EncFunc::PassengerMgm;
 	Ra::States& state = Ra::States::Get();
 
 	Ra::X509Req certReq(*state.GetKeyContainer().GetSignKeyPair(), "Passenger");
@@ -105,9 +124,9 @@ bool RegesterCert(Net::Connection& con)
 	std::shared_ptr<Decent::Ra::TlsConfig> pasTlsCfg = std::make_shared<Decent::Ra::TlsConfig>(AppNames::sk_passengerMgm, state);
 	Decent::Net::TlsCommLayer pasTls(&con, pasTlsCfg, true);
 
-	std::string msgBuf = EncFunc::GetMsgString(EncFunc::PassengerMgm::k_userReg);
+	std::string msgBuf;
 
-	if (!pasTls.SendMsg(&con, msgBuf) ||
+	if (!pasTls.SendMsg(&con, EncFunc::GetMsgString(k_userReg)) ||
 		!pasTls.SendMsg(&con, regMsg.ToString()) ||
 		!pasTls.ReceiveMsg(&con, msgBuf))
 	{
@@ -126,8 +145,27 @@ bool RegesterCert(Net::Connection& con)
 	return true;
 }
 
+static std::unique_ptr<ComMsg::SignedQuote> ParseSignedQuote(const std::string& msg, Ra::States& state)
+{
+	JsonDoc json;
+	if (!ParseStr2Json(json, msg))
+	{
+		return nullptr;
+	}
+
+	try
+	{
+		return std::make_unique<ComMsg::SignedQuote>(ComMsg::SignedQuote::ParseSignedQuote(json, state, AppNames::sk_tripPlanner));
+	}
+	catch (const std::exception&)
+	{
+		return nullptr;
+	}
+}
+
 bool SendQuery(Net::Connection& con)
 {
+	using namespace EncFunc::TripPlaner;
 	Ra::States& state = Ra::States::Get();
 
 	ComMsg::GetQuote getQuote(ComMsg::Point2D<double>(1.1, 1.2), ComMsg::Point2D<double>(1.3, 1.4));
@@ -135,13 +173,19 @@ bool SendQuery(Net::Connection& con)
 	std::shared_ptr<Decent::Ra::TlsConfig> tpTlsCfg = std::make_shared<Decent::Ra::TlsConfig>(AppNames::sk_tripPlanner, state, false);
 	Decent::Net::TlsCommLayer tpTls(&con, tpTlsCfg, true);
 
-	std::string msgBuf = EncFunc::GetMsgString(EncFunc::TripPlaner::k_getQuote);
-
-	if (!tpTls.SendMsg(&con, msgBuf) ||
-		!tpTls.SendMsg(&con, getQuote.ToString()))
+	std::string msgBuf;
+	std::unique_ptr<ComMsg::SignedQuote> signedQuote;
+	std::unique_ptr<ComMsg::Quote> quote;
+	if (!tpTls.SendMsg(&con, EncFunc::GetMsgString(k_getQuote)) ||
+		!tpTls.SendMsg(&con, getQuote.ToString()) ||
+		!tpTls.ReceiveMsg(&con, msgBuf) ||
+		!(signedQuote = ParseSignedQuote(msgBuf, state)) ||
+		!(quote = ParseMsg<ComMsg::Quote>(signedQuote->GetQuote())))
 	{
 		return false;
 	}
+
+	LOGI("Received quote with price: %f.", quote->GetPrice().GetPrice());
 
 	return true;
 }

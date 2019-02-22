@@ -220,6 +220,13 @@ file(GLOB_RECURSE SOURCES_PassengerMgm_App ${SOURCEDIR_PassengerMgm_App}/*.[ch]*
 file(GLOB_RECURSE SOURCES_PassengerMgm_Enc ${SOURCEDIR_PassengerMgm_Enc}/*.[ch]*)
 file(GLOB_RECURSE SOURCES_PassengerMgm_EDL ${SOURCEDIR_PassengerMgm_Enc}/*.edl)
 
+# Billing Files:
+set(SOURCEDIR_Billing_App ${SOURCEDIR}/Billing_App)
+set(SOURCEDIR_Billing_Enc ${SOURCEDIR}/Billing_Enc)
+file(GLOB_RECURSE SOURCES_Billing_App ${SOURCEDIR_Billing_App}/*.[ch]*)
+file(GLOB_RECURSE SOURCES_Billing_Enc ${SOURCEDIR_Billing_Enc}/*.[ch]*)
+file(GLOB_RECURSE SOURCES_Billing_EDL ${SOURCEDIR_Billing_Enc}/*.edl)
+
 # Passenger Files:
 set(SOURCEDIR_Passenger ${SOURCEDIR}/Passenger)
 file(GLOB_RECURSE SOURCES_Passenger ${SOURCEDIR_Passenger}/*.[ch]*)
@@ -261,7 +268,7 @@ endif()
 #   Enclave Projects
 #==========================================================
 
-set(Enc_Proj_Name_List TripPlaner PassengerMgm)
+set(Enc_Proj_Name_List TripPlaner PassengerMgm Billing)
 
 foreach(Proj_Name IN ITEMS ${Enc_Proj_Name_List})
 

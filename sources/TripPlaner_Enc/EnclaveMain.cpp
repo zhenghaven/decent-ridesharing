@@ -90,6 +90,33 @@ static bool SendQueryLog(const std::string& userId, const ComMsg::GetQuote& getQ
 		pasMgmTls.SendMsg(pasMgmCnt.m_ptr, log.ToString());
 }
 
+static std::unique_ptr<ComMsg::Price> GetPriceFromBilling(const ComMsg::Path& pathMsg)
+{
+	LOGI("Connecting to a Billing Service...");
+	CntWraper billingCnt(&ocall_ride_share_cnt_mgr_get_billing);
+	if (!billingCnt.m_ptr)
+	{
+		LOGW("Failed to Connect to a Billing Service!");
+		return nullptr;
+	}
+
+	std::shared_ptr<Decent::Ra::TlsConfig> bsTlsCfg = std::make_shared<Decent::Ra::TlsConfig>(AppNames::sk_billing, gs_state, false);
+	Decent::Net::TlsCommLayer bsTls(billingCnt.m_ptr, bsTlsCfg, true);
+
+	std::string msgBuf;
+	std::unique_ptr<ComMsg::Price> price;
+	if (!bsTls.SendMsg(billingCnt.m_ptr, EncFunc::GetMsgString(EncFunc::Billing::k_calPrice)) ||
+		!bsTls.SendMsg(billingCnt.m_ptr, pathMsg.ToString()) ||
+		!bsTls.ReceiveMsg(billingCnt.m_ptr, msgBuf) ||
+		!(price = ParseMsg<ComMsg::Price>(msgBuf)))
+	{
+		LOGW("Failed to receive price! (Msg Buf: %s)", msgBuf.c_str());
+		return nullptr;
+	}
+
+	return std::move(price);
+}
+
 static void ProcessGetQuote(void* const connection, Decent::Net::TlsCommLayer& tls)
 {
 	LOGI("Process Get Quote Request.");
@@ -127,37 +154,20 @@ static void ProcessGetQuote(void* const connection, Decent::Net::TlsCommLayer& t
 		return;
 	}
 
-	ComMsg::Path pathMsg(path);
+	ComMsg::Path pathMsg(std::move(path));
 
 	LOGI("Querying Billing Service for price...");
-	LOGI("Connecting to a Billing Service...");
-	//CntWraper billingCnt(&ocall_ride_share_cnt_mgr_get_billing);
-	//if (!pasMgmCnt.m_ptr)
-	//{
-	//	return false;
-	//}
+	std::unique_ptr<ComMsg::Price> price = GetPriceFromBilling(pathMsg);
+	if (!price)
+	{
+		return;
+	}
 
-	//TODO: Get Connection to Billing Service
+	ComMsg::Quote quote(*getQuote, pathMsg, *price, "Trip_Planner_Part_1_Payment");
+	LOGI("Constructing Signed Quote...");
+	ComMsg::SignedQuote signedQuote = ComMsg::SignedQuote::SignQuote(quote, gs_state);
 
-	//std::shared_ptr<Decent::Ra::TlsConfig> bsTlsCfg = std::make_shared<Decent::Ra::TlsConfig>(AppNames::sk_billing, gs_state, false);
-	//Decent::Net::TlsCommLayer bsTls(bsCont, bsTlsCfg, true);
-	//LOGI("TLS Handshake Successful!");
-
-	//if (!bsTls.SendMsg(bsCont, pathMsg.ToString()) ||
-	//	!bsTls.ReceiveMsg(bsCont, msgBuf) ||
-	//	!Decent::Tools::ParseStr2Json(json, msgBuf))
-	//{
-	//	return;
-	//}
-
-	////TODO: Close connection.
-
-	//ComMsg::Price price(json);
-	//ComMsg::Quote quote(getQuote, path, price, "Trip_Planner_Part_1_Payment");
-	//LOGI("Constructing Signed Quote...");
-	//ComMsg::SignedQuote signedQuote = ComMsg::SignedQuote::SignQuote(quote, gs_state);
-
-	//tls.SendMsg(connection, signedQuote.ToString());
+	tls.SendMsg(connection, signedQuote.ToString());
 
 }
 
@@ -235,6 +245,7 @@ static void ProcessConfirmQuote(void* const connection, Decent::Net::TlsCommLaye
 
 extern "C" int ecall_ride_share_tp_from_pas(void* const connection)
 {
+	using namespace EncFunc::TripPlaner;
 	LOGI("Processing message from passenger...");
 
 	std::shared_ptr<RideShare::TlsConfig> tlsCfg = std::make_shared<RideShare::TlsConfig>(AppNames::sk_passengerMgm, gs_state, true);
@@ -250,16 +261,16 @@ extern "C" int ecall_ride_share_tp_from_pas(void* const connection)
 
 	LOGI("TLS Handshake Successful!");
 
-	const EncFunc::TripPlaner::NumType funcNum = *reinterpret_cast<const EncFunc::TripPlaner::NumType*>(msgBuf.data());
+	const NumType funcNum = EncFunc::GetNum<NumType>(msgBuf);
 
 	LOGI("Request Function: %d.", funcNum);
 
 	switch (funcNum)
 	{
-	case EncFunc::TripPlaner::k_getQuote:
+	case k_getQuote:
 		ProcessGetQuote(connection, tls);
 		break;
-	case EncFunc::TripPlaner::k_confirmQuote:
+	case k_confirmQuote:
 		ProcessConfirmQuote(connection, tls);
 		break;
 	default:
