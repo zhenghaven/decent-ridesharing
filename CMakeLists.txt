@@ -1,8 +1,11 @@
 cmake_minimum_required(VERSION 3.11)
 
 #==========================================================
-#   Options for Decent Project
+#   Options for Decent Ride Sharing Project
 #==========================================================
+
+set(Enc_Proj_Name_List PassengerMgm TripPlaner TripMatcher Billing)
+
 set(HUNTER_BOOST_RUNTIME_STATIC ON CACHE BOOL "Switch for using boost runtime static linking." FORCE)
 
 if(APPLE)
@@ -29,7 +32,7 @@ get_filename_component(HUNTER_ROOT "${CMAKE_CURRENT_LIST_DIR}/hunter" ABSOLUTE)
 HunterGate(URL "x" SHA1 "xxxxxxxx" FILEPATH ${CMAKE_CURRENT_LIST_DIR}/HunterConfig.cmake)
 
 #==========================================================
-#   Start Decent Project
+#   Start Decent Ride Sharing Project
 #==========================================================
 project(DecentRidesharing)
 
@@ -206,26 +209,16 @@ set(SOURCEDIR_Common_Enc ${SOURCEDIR}/Common_Enc)
 file(GLOB_RECURSE SOURCES_Common_Enc ${SOURCEDIR_Common_Enc}/*.[ch]*)
 file(GLOB_RECURSE SOURCES_Common_EDL ${SOURCEDIR_Common_Enc}/*.edl)
 
-# TripPlaner Files:
-set(SOURCEDIR_TripPlaner_App ${SOURCEDIR}/TripPlaner_App)
-set(SOURCEDIR_TripPlaner_Enc ${SOURCEDIR}/TripPlaner_Enc)
-file(GLOB_RECURSE SOURCES_TripPlaner_App ${SOURCEDIR_TripPlaner_App}/*.[ch]*)
-file(GLOB_RECURSE SOURCES_TripPlaner_Enc ${SOURCEDIR_TripPlaner_Enc}/*.[ch]*)
-file(GLOB_RECURSE SOURCES_TripPlaner_EDL ${SOURCEDIR_TripPlaner_Enc}/*.edl)
-
-# PassengerMgm Files:
-set(SOURCEDIR_PassengerMgm_App ${SOURCEDIR}/PassengerMgm_App)
-set(SOURCEDIR_PassengerMgm_Enc ${SOURCEDIR}/PassengerMgm_Enc)
-file(GLOB_RECURSE SOURCES_PassengerMgm_App ${SOURCEDIR_PassengerMgm_App}/*.[ch]*)
-file(GLOB_RECURSE SOURCES_PassengerMgm_Enc ${SOURCEDIR_PassengerMgm_Enc}/*.[ch]*)
-file(GLOB_RECURSE SOURCES_PassengerMgm_EDL ${SOURCEDIR_PassengerMgm_Enc}/*.edl)
-
-# Billing Files:
-set(SOURCEDIR_Billing_App ${SOURCEDIR}/Billing_App)
-set(SOURCEDIR_Billing_Enc ${SOURCEDIR}/Billing_Enc)
-file(GLOB_RECURSE SOURCES_Billing_App ${SOURCEDIR_Billing_App}/*.[ch]*)
-file(GLOB_RECURSE SOURCES_Billing_Enc ${SOURCEDIR_Billing_Enc}/*.[ch]*)
-file(GLOB_RECURSE SOURCES_Billing_EDL ${SOURCEDIR_Billing_Enc}/*.edl)
+foreach(Proj_Name IN ITEMS ${Enc_Proj_Name_List})
+	
+	# Enclave Project Files:
+	set(SOURCEDIR_${Proj_Name}_App ${SOURCEDIR}/${Proj_Name}_App)
+	set(SOURCEDIR_${Proj_Name}_Enc ${SOURCEDIR}/${Proj_Name}_Enc)
+	file(GLOB_RECURSE SOURCES_${Proj_Name}_App ${SOURCEDIR_${Proj_Name}_App}/*.[ch]*)
+	file(GLOB_RECURSE SOURCES_${Proj_Name}_Enc ${SOURCEDIR_${Proj_Name}_Enc}/*.[ch]*)
+	file(GLOB_RECURSE SOURCES_${Proj_Name}_EDL ${SOURCEDIR_${Proj_Name}_Enc}/*.edl)
+	
+endforeach()
 
 # Passenger Files:
 set(SOURCEDIR_Passenger ${SOURCEDIR}/Passenger)
@@ -267,8 +260,6 @@ endif()
 #==========================================================
 #   Enclave Projects
 #==========================================================
-
-set(Enc_Proj_Name_List TripPlaner PassengerMgm Billing)
 
 foreach(Proj_Name IN ITEMS ${Enc_Proj_Name_List})
 
@@ -374,6 +365,7 @@ foreach(Proj_Name IN ITEMS ${Enc_Proj_Name_List})
 	)
 
 	add_dependencies(${Proj_Name}_App ${Proj_Name}_Enclave)
+	
 endforeach()
 
 set(Nor_Proj_Name_List Passenger)

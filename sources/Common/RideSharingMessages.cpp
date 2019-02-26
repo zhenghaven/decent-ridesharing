@@ -411,14 +411,16 @@ JsonValue & TripId::ToJson(JsonDoc & doc) const
 	return doc;
 }
 
-constexpr char const TripMatcherAddr::sk_labelIp[];
-constexpr char const TripMatcherAddr::sk_labelPort[];
-constexpr char const TripMatcherAddr::sk_labelTripId[];
+constexpr char const PasMatchedResult::sk_labelTripId[];
+constexpr char const PasMatchedResult::sk_labelDriContact[];
 
-JsonValue & TripMatcherAddr::ToJson(JsonDoc & doc) const
+JsonValue & PasMatchedResult::ToJson(JsonDoc & doc) const
 {
-	Tools::JsonSetVal(doc, TripMatcherAddr::sk_labelIp, static_cast<int>(m_ip));
-	Tools::JsonSetVal(doc, TripMatcherAddr::sk_labelPort, static_cast<int>(m_port));
+	JsonValue id = std::move(m_tripId.ToJson(doc));
+	JsonValue dirContact = std::move(m_driContact.ToJson(doc));
+
+	Tools::JsonSetVal(doc, sk_labelTripId, id);
+	Tools::JsonSetVal(doc, sk_labelDriContact, dirContact);
 
 	return doc;
 }

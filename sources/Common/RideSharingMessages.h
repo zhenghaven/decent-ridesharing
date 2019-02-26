@@ -3,32 +3,7 @@
 #include <string>
 #include <vector>
 
-#ifdef ENCLAVE_ENVIRONMENT
-namespace rapidjson
-{
-	class CrtAllocator;
-
-	template <typename BaseAllocator>
-	class MemoryPoolAllocator;
-
-	template <typename Encoding, typename Allocator>
-	class GenericValue;
-
-	template<typename CharType>
-	struct UTF8;
-
-	template <typename Encoding, typename Allocator, typename StackAllocator>
-	class GenericDocument;
-
-	typedef GenericValue<UTF8<char>, MemoryPoolAllocator<CrtAllocator> > Value;
-	typedef GenericDocument<UTF8<char>, MemoryPoolAllocator<CrtAllocator>, CrtAllocator> Document;
-}
-#else
-namespace Json
-{
-	class Value;
-}
-#endif // ENCLAVE_ENVIRONMENT
+#include <DecentApi/Common/Tools/JsonForwardDeclare.h>
 
 namespace Decent
 {
@@ -45,13 +20,8 @@ namespace Decent
 namespace ComMsg
 {
 
-#ifdef ENCLAVE_ENVIRONMENT
-	typedef rapidjson::Value JsonValue;
-	typedef rapidjson::Document JsonDoc;
-#else
-	typedef Json::Value JsonValue;
-	typedef Json::Value JsonDoc;
-#endif // ENCLAVE_ENVIRONMENT
+	typedef Decent::Tools::JsonValue JsonValue;
+	typedef Decent::Tools::JsonDoc   JsonDoc;
 
 	namespace Internal
 	{
@@ -608,53 +578,48 @@ namespace ComMsg
 		std::string m_id;
 	};
 
-	class TripMatcherAddr : virtual public JsonMsg
+	class PasMatchedResult : virtual public JsonMsg
 	{
 	public:
-		static constexpr char const sk_labelIp[] = "IP";
-		static constexpr char const sk_labelPort[] = "Port";
 		static constexpr char const sk_labelTripId[] = "TripId";
+		static constexpr char const sk_labelDriContact[] = "DriContact";
 
 	public:
-		TripMatcherAddr() = delete;
+		PasMatchedResult() = delete;
 
-		TripMatcherAddr(const uint32_t Ip, const uint32_t port, const TripId& tripId) :
-			m_ip(Ip),
-			m_port(port),
-			m_tripId(tripId)
+		PasMatchedResult(const TripId& tripId, const DriContact& driContact) :
+			m_tripId(tripId),
+			m_driContact(driContact)
 		{}
 
-		TripMatcherAddr(const uint32_t Ip, const uint32_t port, TripId&& tripId) :
-			m_ip(Ip),
-			m_port(port),
-			m_tripId(std::forward<TripId>(tripId))
+		PasMatchedResult(TripId&& tripId, DriContact&& driContact) :
+			m_tripId(std::forward<TripId>(tripId)),
+			m_driContact(std::forward<DriContact>(driContact))
 		{}
 
-		TripMatcherAddr(const TripMatcherAddr& rhs) :
-			TripMatcherAddr(rhs.m_ip, rhs.m_port, rhs.m_tripId)
+		PasMatchedResult(const PasMatchedResult& rhs) :
+			PasMatchedResult(rhs.m_tripId, rhs.m_driContact)
 		{}
 
-		TripMatcherAddr(TripMatcherAddr&& rhs) :
-			TripMatcherAddr(rhs.m_ip, rhs.m_port, std::forward<TripId>(rhs.m_tripId))
+		PasMatchedResult(PasMatchedResult&& rhs) :
+			PasMatchedResult(std::forward<TripId>(rhs.m_tripId),
+				std::forward<DriContact>(rhs.m_driContact))
 		{}
 
-		TripMatcherAddr(const JsonValue& json) :
-			TripMatcherAddr(static_cast<uint32_t>(Internal::ParseObj<int>(json, sk_labelIp)),
-				static_cast<uint16_t>(Internal::ParseObj<int>(json, sk_labelPort)),
-				TripId::Parse(json, sk_labelTripId))
+		PasMatchedResult(const JsonValue& json) :
+			PasMatchedResult(TripId::Parse(json, sk_labelTripId),
+				DriContact::Parse(json, sk_labelDriContact))
 		{}
 
-		~TripMatcherAddr() {}
+		~PasMatchedResult() {}
 
 		virtual JsonValue& ToJson(JsonDoc& doc) const override;
 
-		uint32_t GetIp() const { return m_ip; }
-		uint16_t GetPort() const { return m_port; }
+		const DriContact& GetPort() const { return m_driContact; }
 		const TripId& GetTripId() const { return m_tripId; }
 
 	private:
-		uint32_t m_ip;
-		uint16_t m_port;
+		DriContact m_driContact;
 		TripId m_tripId;
 	};
 

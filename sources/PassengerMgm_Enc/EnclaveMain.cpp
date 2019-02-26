@@ -43,8 +43,8 @@ namespace
 
 		PasProfileItem(PasProfileItem&& rhs) :
 			m_name(std::move(rhs.m_name)),
-			m_phone(rhs.m_phone),
-			m_pay(rhs.m_pay)
+			m_phone(std::move(rhs.m_phone)),
+			m_pay(std::move(rhs.m_pay))
 		{}
 	};
 

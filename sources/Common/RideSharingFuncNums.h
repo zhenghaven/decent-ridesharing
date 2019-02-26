@@ -39,5 +39,15 @@ namespace RideShare
 			typedef uint8_t NumType;
 			constexpr NumType k_calPrice = 0;
 		}
+
+		namespace TripMatcher
+		{
+			typedef uint8_t NumType;
+			constexpr NumType k_confirmQuote = 0;
+			constexpr NumType k_findMatch    = 1;
+			constexpr NumType k_confirmMatch = 2;
+			constexpr NumType k_tripStart    = 3;
+			constexpr NumType k_tripEnd      = 4;
+		}
 	}
 }
