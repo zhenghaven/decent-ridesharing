@@ -86,10 +86,27 @@ static void ProcessPasRegisterReq(void* const connection, Decent::Net::TlsCommLa
 	const std::string& csrPem = pasRegInfo->GetCsr();
 	X509Req certReq(csrPem);
 
+	if (!certReq)
+	{
+		return;
+	}
+
+	const std::string pasPubPemStr = certReq.GetEcPublicKey().ToPubPemString();
+
+	{
+		std::unique_lock<std::mutex> pasProfilesLock(gs_pasProfilesMutex);
+		if (gsk_pasProfiles.find(pasPubPemStr) != gsk_pasProfiles.cend())
+		{
+			LOGI("Client profile already exist.");
+			return;
+		}
+	}
+
 	std::shared_ptr<const Decent::MbedTlsObj::ECKeyPair> prvKey = gs_state.GetKeyContainer().GetSignKeyPair();
 	std::shared_ptr<const AppX509> cert = std::dynamic_pointer_cast<const AppX509>(gs_state.GetCertContainer().GetCert());
 
 	if (!certReq.VerifySignature() ||
+		!certReq.GetEcPublicKey() ||
 		!prvKey || !*prvKey ||
 		!cert || !*cert)
 	{
@@ -98,31 +115,16 @@ static void ProcessPasRegisterReq(void* const connection, Decent::Net::TlsCommLa
 
 	ClientX509 clientCert(certReq.GetEcPublicKey(), *cert, *prvKey, "RideSharingClient");
 
-	if (!clientCert)
-	{
-		LOGI("Client certificate generation failed!");
-		return;
-	}
-
-	const std::string clientCertPem = clientCert.ToPemString();
-	LOGI("Client certificate is generated:\n%s\n", clientCertPem.c_str());
-
 	{
 		std::unique_lock<std::mutex> pasProfilesLock(gs_pasProfilesMutex);
-		auto it = gsk_pasProfiles.find(clientCertPem);
-		if (it != gsk_pasProfiles.cend())
-		{
-			LOGI("Client profile already exist.");
-			return;
-		}
 
-		gs_pasProfiles.insert(std::make_pair(clientCertPem,
+		gs_pasProfiles.insert(std::make_pair(pasPubPemStr,
 			PasProfileItem(pasRegInfo->GetContact().GetName(), pasRegInfo->GetContact().GetPhone(), pasRegInfo->GetPayment())));
 
 		LOGI("Client profile added. Profile store size: %llu.", gsk_pasProfiles.size());
 	}
 
-	tls.SendMsg(connection, clientCertPem);
+	tls.SendMsg(connection, clientCert.ToPemString());
 
 }
 

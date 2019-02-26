@@ -21,7 +21,8 @@
 
 #include "MessageException.h"
 
-using namespace ComMsg;
+using namespace RideShare;
+using namespace RideShare::ComMsg;
 using namespace Decent;
 using namespace Decent::Ra;
 
@@ -277,7 +278,7 @@ SignedQuote SignedQuote::SignQuote(const Quote& quote, Decent::Ra::States& state
 		!prvKey ||
 		!prvKey.EcdsaSign(sign, hash, mbedtls_md_info_from_type(mbedtls_md_type_t::MBEDTLS_MD_SHA256)))
 	{
-		throw MessageException();
+		throw MessageException("Failed to sign the quote!");
 	}
 
 	std::string signStr = Tools::SerializeStruct(sign);

@@ -63,7 +63,7 @@ int main(int argc, char ** argv)
 	ConnectionManager::SetConfigManager(configManager);
 
 	const ConfigItem& decentServerItem = configManager.GetItem(Ra::WhiteList::sk_nameDecentServer);
-	const ConfigItem& tripMatcherItem = configManager.GetItem(AppNames::sk_passengerMgm);
+	const ConfigItem& tripMatcherItem = configManager.GetItem(AppNames::sk_tripMatcher);
 
 	uint32_t serverIp = boost::asio::ip::address_v4::from_string(decentServerItem.GetAddr()).to_uint();
 	std::unique_ptr<Net::Connection> serverCon;

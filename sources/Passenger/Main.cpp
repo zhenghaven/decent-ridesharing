@@ -31,8 +31,9 @@ using namespace Decent;
 using namespace Decent::Tools;
 using namespace Decent::Ra::WhiteList;
 
-bool RegesterCert(Net::Connection& con);
-bool SendQuery(Net::Connection& con);
+bool RegesterCert(Net::Connection& con, const ComMsg::PasContact& contact);
+bool SendQuery(Net::Connection& con, std::string& signedQuote);
+bool ConfirmQuote(Net::Connection& con, const ComMsg::PasContact& contact, const std::string& signedQuoteStr);
 
 template<typename MsgType>
 static std::unique_ptr<MsgType> ParseMsg(const std::string& msgStr)
@@ -94,16 +95,25 @@ int main(int argc, char ** argv)
 	}
 	state.GetCertContainer().SetCert(cert);
 
+	ComMsg::PasContact contact("fName lName", "1234567890");
+
 	std::unique_ptr<Net::Connection> appCon;
 
 	appCon = ConnectionManager::GetConnection2PassengerMgm(FromPassenger());
-	if (!RegesterCert(*appCon))
+	if (!RegesterCert(*appCon, contact))
 	{
 		return 1;
 	}
 
+	std::string signedQuoteStr;
 	appCon = ConnectionManager::GetConnection2TripPlanner(FromPassenger());
-	if (!SendQuery(*appCon))
+	if (!SendQuery(*appCon, signedQuoteStr))
+	{
+		return 1;
+	}
+
+	appCon = ConnectionManager::GetConnection2TripMatcher(FromPassenger());
+	if (!ConfirmQuote(*appCon, contact, signedQuoteStr))
 	{
 		return 1;
 	}
@@ -112,14 +122,14 @@ int main(int argc, char ** argv)
 	return 0;
 }
 
-bool RegesterCert(Net::Connection& con)
+bool RegesterCert(Net::Connection& con, const ComMsg::PasContact& contact)
 {
 	using namespace EncFunc::PassengerMgm;
 	Ra::States& state = Ra::States::Get();
 
 	Ra::X509Req certReq(*state.GetKeyContainer().GetSignKeyPair(), "Passenger");
 
-	ComMsg::PasReg regMsg(ComMsg::PasContact("fName lName", "1234567890"), "Passneger Payment Info XXXXX", certReq.ToPemString());
+	ComMsg::PasReg regMsg(contact, "Passneger Payment Info XXXXX", certReq.ToPemString());
 
 	std::shared_ptr<Decent::Ra::TlsConfig> pasTlsCfg = std::make_shared<Decent::Ra::TlsConfig>(AppNames::sk_passengerMgm, state);
 	Decent::Net::TlsCommLayer pasTls(&con, pasTlsCfg, true);
@@ -163,7 +173,7 @@ static std::unique_ptr<ComMsg::SignedQuote> ParseSignedQuote(const std::string& 
 	}
 }
 
-bool SendQuery(Net::Connection& con)
+bool SendQuery(Net::Connection& con, std::string& signedQuoteStr)
 {
 	using namespace EncFunc::TripPlaner;
 	Ra::States& state = Ra::States::Get();
@@ -173,19 +183,39 @@ bool SendQuery(Net::Connection& con)
 	std::shared_ptr<Decent::Ra::TlsConfig> tpTlsCfg = std::make_shared<Decent::Ra::TlsConfig>(AppNames::sk_tripPlanner, state, false);
 	Decent::Net::TlsCommLayer tpTls(&con, tpTlsCfg, true);
 
-	std::string msgBuf;
 	std::unique_ptr<ComMsg::SignedQuote> signedQuote;
 	std::unique_ptr<ComMsg::Quote> quote;
 	if (!tpTls.SendMsg(&con, EncFunc::GetMsgString(k_getQuote)) ||
 		!tpTls.SendMsg(&con, getQuote.ToString()) ||
-		!tpTls.ReceiveMsg(&con, msgBuf) ||
-		!(signedQuote = ParseSignedQuote(msgBuf, state)) ||
+		!tpTls.ReceiveMsg(&con, signedQuoteStr) ||
+		!(signedQuote = ParseSignedQuote(signedQuoteStr, state)) ||
 		!(quote = ParseMsg<ComMsg::Quote>(signedQuote->GetQuote())))
 	{
 		return false;
 	}
 
 	LOGI("Received quote with price: %f.", quote->GetPrice().GetPrice());
+
+	return true;
+}
+
+bool ConfirmQuote(Net::Connection& con, const ComMsg::PasContact& contact, const std::string& signedQuoteStr)
+{
+	using namespace EncFunc::TripMatcher;
+	Ra::States& state = Ra::States::Get();
+
+	ComMsg::ConfirmQuote confirmQuote(contact, signedQuoteStr);
+
+	std::shared_ptr<Decent::Ra::TlsConfig> tmTlsCfg = std::make_shared<Decent::Ra::TlsConfig>(AppNames::sk_tripMatcher, state, false);
+	Decent::Net::TlsCommLayer tmTls(&con, tmTlsCfg, true);
+	
+	std::string msgBuf;
+	if (!tmTls.SendMsg(&con, EncFunc::GetMsgString(k_confirmQuote)) ||
+		!tmTls.SendMsg(&con, confirmQuote.ToString()) ||
+		!tmTls.ReceiveMsg(&con, msgBuf) )
+	{
+		return false;
+	}
 
 	return true;
 }

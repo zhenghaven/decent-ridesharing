@@ -20,6 +20,7 @@
 #include "../Common/AppNames.h"
 #include "../Common/RideSharingFuncNums.h"
 #include "../Common/RideSharingMessages.h"
+#include "../Common/UnexpectedErrorException.h"
 
 using namespace RideShare;
 using namespace Decent;
@@ -130,6 +131,7 @@ static bool AddConfirmedQuote(std::unique_ptr<ConfirmedQuoteItem>& item)
 	std::unique_lock<std::mutex> mapLockQuote(gs_confirmedQuoteMapMutex);
 	if (gs_confirmedQuoteIdMap.find(tripId) != gs_confirmedQuoteIdMap.end())
 	{
+		LOGW("Quote already exist!");
 		return false;
 	}
 
@@ -137,6 +139,7 @@ static bool AddConfirmedQuote(std::unique_ptr<ConfirmedQuoteItem>& item)
 		std::unique_lock<std::mutex> mapLockMatched(gs_matchedMapMutex);
 		if (gsk_matchedMap.find(tripId) != gsk_matchedMap.cend())
 		{
+			LOGW("Quote already exist!");
 			return false;
 		}
 	}
@@ -151,18 +154,11 @@ static bool AddConfirmedQuote(std::unique_ptr<ConfirmedQuoteItem>& item)
 static void RemoveConfirmedQuotePos(ConfirmedQuotePosMapType& map, double key, ConfirmedQuoteItem* const itemPtr)
 {
 	auto it = map.find(key);
-	if (it == map.end())
-	{
-		LOGW("Unexpected case!");
-		return;
-	}
+	DEBUG_ASSERT(it != map.end());
 
 	auto posIt = std::find(it->second.begin(), it->second.end(), itemPtr);
-	if (posIt == it->second.end())
-	{
-		LOGW("Unexpected case!");
-		return;
-	}
+	DEBUG_ASSERT(posIt != it->second.end());
+	
 	it->second.erase(posIt);
 
 	if (it->second.size() == 0)
@@ -176,11 +172,8 @@ static std::unique_ptr<ConfirmedQuoteItem> RemoveConfirmedQuote(ConfirmedQuoteIt
 	std::unique_lock<std::mutex> mapLock(gs_confirmedQuoteMapMutex);
 	auto it = gs_confirmedQuoteMap.find(itemPtr);
 
-	if (it == gs_confirmedQuoteMap.end())
-	{
-		LOGW("Unexpected case!");
-		return nullptr;
-	}
+	DEBUG_ASSERT(it != gs_confirmedQuoteMap.end());
+	
 	std::unique_ptr<ConfirmedQuoteItem> res = std::move(it->second);
 	gs_confirmedQuoteMap.erase(it);
 
@@ -196,12 +189,8 @@ static std::unique_ptr<ConfirmedQuoteItem> RemoveConfirmedQuote(ConfirmedQuoteIt
 static void AddMatchedItem(const std::string& tripId, std::shared_ptr<MatchedItem>& matched)
 {
 	std::unique_lock<std::mutex> mapLock(gs_matchedMapMutex);
-	if (gsk_matchedMap.find(tripId) != gsk_matchedMap.cend())
-	{
-		LOGW("Unexpected case!");
-		return;
-	}
-
+	DEBUG_ASSERT(gsk_matchedMap.find(tripId) == gsk_matchedMap.cend());
+	
 	gs_matchedMap.insert(std::make_pair(tripId, std::move(matched)));
 
 	{
@@ -228,6 +217,7 @@ static void ProcessPasConfirmQuoteReq(void* const connection, Decent::Net::TlsCo
 	}
 
 	std::string tripId = ConstructTripId(confirmQuote->GetSignQuote());
+	LOGI("Got quote with trip ID: %s.", tripId.c_str());
 	std::unique_ptr<ConfirmedQuoteItem> item = make_unique<ConfirmedQuoteItem>(confirmQuote->GetContact(), *quote, tripId);
 	ConfirmedQuoteItem* itemPtr = item.get();
 
@@ -248,13 +238,9 @@ static void ProcessPasConfirmQuoteReq(void* const connection, Decent::Net::TlsCo
 	item.reset();
 
 	itemCond.wait(itemLock, [&driContact] {return static_cast<bool>(driContact); });
-	
+	LOGI("Match for the trip with ID %s is found.", tripId.c_str());
+
 	item = RemoveConfirmedQuote(itemPtr);
-	if (!item)
-	{
-		LOGW("Unexpected case!");
-		return;
-	}
 
 	std::shared_ptr<MatchedItem> matched = std::make_shared<MatchedItem>(std::move(item->m_quote));
 

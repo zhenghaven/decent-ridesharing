@@ -1,35 +1,26 @@
 #pragma once
 
-#include <exception>
+#include "RuntimeException.h"
 
-class MessageException : public std::exception
+namespace RideShare
 {
-public:
-	MessageException()
-	{}
-	virtual ~MessageException()
-	{}
-
-	virtual const char* what() const throw()
+	class MessageException : public RuntimeException
 	{
-		return "General Message Exception.";
-	}
-private:
+	public:
+		using RuntimeException::RuntimeException;
 
-};
+	private:
 
-class MessageParseException : public MessageException
-{
-public:
-	MessageParseException()
-	{}
-	virtual ~MessageParseException()
-	{}
+	};
 
-	virtual const char* what() const throw()
+	class MessageParseException : public MessageException
 	{
-		return "Message Parse Error. Invalid message format!";
-	}
-private:
+	public:
+		MessageParseException() :
+			MessageException("Message Parse Error. Invalid message format!")
+		{}
 
-};
+	private:
+
+	};
+}
