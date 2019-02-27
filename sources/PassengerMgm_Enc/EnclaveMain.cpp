@@ -13,6 +13,7 @@
 #include <DecentApi/Common/Tools/JsonTools.h>
 
 #include <rapidjson/document.h>
+#include <cppcodec/base64_default_rfc4648.hpp>
 
 #include "../Common/Crypto.h"
 #include "../Common/TlsConfig.h"
@@ -70,6 +71,11 @@ namespace
 	}
 }
 
+static bool VerifyContactInfo(const ComMsg::PasContact& contact)
+{
+	return contact.GetName().size() != 0 && contact.GetPhone().size() != 0;
+}
+
 static void ProcessPasRegisterReq(void* const connection, Decent::Net::TlsCommLayer& tls)
 {
 	LOGI("Processing Passenger Register Request...");
@@ -79,6 +85,11 @@ static void ProcessPasRegisterReq(void* const connection, Decent::Net::TlsCommLa
 	std::unique_ptr<ComMsg::PasReg> pasRegInfo;
 	if (!tls.ReceiveMsg(connection, msgBuf) ||
 		!(pasRegInfo = ParseMsg<ComMsg::PasReg>(msgBuf)))
+	{
+		return;
+	}
+
+	if (!VerifyContactInfo(pasRegInfo->GetContact()))
 	{
 		return;
 	}
@@ -113,7 +124,8 @@ static void ProcessPasRegisterReq(void* const connection, Decent::Net::TlsCommLa
 		return;
 	}
 
-	ClientX509 clientCert(certReq.GetEcPublicKey(), *cert, *prvKey, "RideSharingClient");
+	ClientX509 clientCert(certReq.GetEcPublicKey(), *cert, *prvKey, "Decent_RideShare_Passenger" + pasRegInfo->GetContact().GetName(), 
+		cppcodec::base64_rfc4648::encode(pasRegInfo->GetContact().CalcHash()));
 
 	{
 		std::unique_lock<std::mutex> pasProfilesLock(gs_pasProfilesMutex);

@@ -1,0 +1,316 @@
+//#include "Enclave_t.h"
+
+#include <mutex>
+#include <memory>
+
+#include <DecentApi/Common/Common.h>
+#include <DecentApi/Common/make_unique.h>
+#include <DecentApi/Common/Ra/TlsConfig.h>
+#include <DecentApi/Common/Ra/States.h>
+#include <DecentApi/Common/Ra/KeyContainer.h>
+#include <DecentApi/Common/Ra/CertContainer.h>
+#include <DecentApi/Common/Net/TlsCommLayer.h>
+#include <DecentApi/Common/Tools/JsonTools.h>
+
+#include <rapidjson/document.h>
+#include <cppcodec/base64_default_rfc4648.hpp>
+
+#include "../Common/Crypto.h"
+#include "../Common/TlsConfig.h"
+#include "../Common/AppNames.h"
+#include "../Common/RideSharingFuncNums.h"
+#include "../Common/RideSharingMessages.h"
+
+using namespace RideShare;
+using namespace Decent::Ra;
+
+namespace
+{
+	static States& gs_state = States::Get();
+	
+	std::string gs_selfPaymentInfo = "Driver Mgm Payment Info Test";
+	
+	struct DriProfileItem
+	{
+		ComMsg::DriContact m_contact;
+		std::string m_pay;
+		std::string m_driLic;
+
+		DriProfileItem(const ComMsg::DriContact& contact, const std::string& pay, const std::string& driLic) :
+			m_contact(contact),
+			m_pay(pay),
+			m_driLic(driLic)
+		{}
+		DriProfileItem(ComMsg::DriContact&& contact, std::string&& pay, std::string&& driLic) :
+			m_contact(std::forward<ComMsg::DriContact>(contact)),
+			m_pay(std::forward<std::string>(pay)),
+			m_driLic(std::forward<std::string>(driLic))
+		{}
+
+		DriProfileItem(DriProfileItem&& rhs) :
+			DriProfileItem(std::forward<ComMsg::DriContact>(rhs.m_contact), 
+				std::forward<std::string>(rhs.m_pay), std::forward<std::string>(rhs.m_driLic))
+		{}
+	};
+
+	typedef std::map<std::string, DriProfileItem> ProfileMapType;
+	ProfileMapType gs_profileMap;
+	const ProfileMapType& gsk_profileMap = gs_profileMap;
+	std::mutex gs_profileMapMutex;
+
+	template<typename MsgType>
+	static std::unique_ptr<MsgType> ParseMsg(const std::string& msgStr)
+	{
+		//LOGW("Parsing Msg (size = %llu): \n%s\n", msgStr.size(), msgStr.c_str());
+		try
+		{
+			rapidjson::Document json;
+			return Decent::Tools::ParseStr2Json(json, msgStr) ? 
+				Decent::Tools::make_unique<MsgType>(json) :
+				nullptr;
+		}
+		catch (const std::exception&)
+		{
+			return nullptr;
+		}
+	}
+}
+
+static bool VerifyContactInfo(const ComMsg::DriContact& contact)
+{
+	return contact.GetName().size() != 0 && contact.GetPhone().size() != 0;
+}
+
+static bool VerifyDriverLicense(const std::string& driLic)
+{
+	return driLic.size() != 0;
+}
+
+static bool VerifyPayment(const std::string& pay)
+{
+	return pay.size() != 0;
+}
+
+static void ProcessDriRegisterReq(void* const connection, Decent::Net::TlsCommLayer& tls)
+{
+	LOGI("Processing Driver Register Request...");
+
+	std::string msgBuf;
+
+	std::unique_ptr<ComMsg::DriReg> driRegInfo;
+	if (!tls.ReceiveMsg(connection, msgBuf) ||
+		!(driRegInfo = ParseMsg<ComMsg::DriReg>(msgBuf)) )
+	{
+		return;
+	}
+
+	if (!VerifyContactInfo(driRegInfo->GetContact()) ||
+		!VerifyDriverLicense(driRegInfo->GetDriLic()) ||
+		!VerifyPayment(driRegInfo->GetPayment()) )
+	{
+		return;
+	}
+
+	const std::string& csrPem = driRegInfo->GetCsr();
+	X509Req certReq(csrPem);
+
+	if (!certReq)
+	{
+		return;
+	}
+
+	const std::string pubPemStr = certReq.GetEcPublicKey().ToPubPemString();
+
+	{
+		std::unique_lock<std::mutex> profileMapLock(gs_profileMapMutex);
+		if (gsk_profileMap.find(pubPemStr) != gsk_profileMap.cend())
+		{
+			LOGI("Client profile already exist.");
+			return;
+		}
+	}
+
+	std::shared_ptr<const Decent::MbedTlsObj::ECKeyPair> prvKey = gs_state.GetKeyContainer().GetSignKeyPair();
+	std::shared_ptr<const AppX509> cert = std::dynamic_pointer_cast<const AppX509>(gs_state.GetCertContainer().GetCert());
+
+	if (!certReq.VerifySignature() ||
+		!certReq.GetEcPublicKey() ||
+		!prvKey || !*prvKey ||
+		!cert || !*cert)
+	{
+		return;
+	}
+
+	const ComMsg::DriContact& contact = driRegInfo->GetContact();
+	ClientX509 clientCert(certReq.GetEcPublicKey(), *cert, *prvKey, "Decent_RideShare_Driver" + contact.GetName(),
+		cppcodec::base64_rfc4648::encode(contact.CalcHash()));
+
+	{
+		std::unique_lock<std::mutex> pasProfilesLock(gs_profileMapMutex);
+
+		gs_profileMap.insert(std::make_pair(pubPemStr,
+			DriProfileItem(contact, driRegInfo->GetPayment(), driRegInfo->GetDriLic())));
+
+		LOGI("Client profile added. Profile store size: %llu.", gsk_profileMap.size());
+	}
+
+	tls.SendMsg(connection, clientCert.ToPemString());
+
+}
+
+extern "C" int ecall_ride_share_dm_from_dri(void* const connection)
+{
+	using namespace EncFunc::DriverMgm;
+
+	LOGI("Processing message from driver...");
+
+	std::shared_ptr<Decent::Ra::TlsConfig> driTlsCfg = std::make_shared<Decent::Ra::TlsConfig>("NaN", gs_state, true);
+	Decent::Net::TlsCommLayer driTls(connection, driTlsCfg, false);
+
+	std::string msgBuf;
+	if (!driTls.ReceiveMsg(connection, msgBuf) ||
+		msgBuf.size() != sizeof(NumType))
+	{
+		LOGI("Recv size: %llu", msgBuf.size());
+		return false;
+	}
+
+	LOGI("TLS Handshake Successful!");
+
+	const NumType funcNum = EncFunc::GetNum<EncFunc::PassengerMgm::NumType>(msgBuf);
+
+	LOGI("Request Function: %d.", funcNum);
+
+	switch (funcNum)
+	{
+	case k_userReg:
+		ProcessDriRegisterReq(connection, driTls);
+		break;
+	default:
+		break;
+	}
+
+	return false;
+}
+
+static void LogQuery(void* const connection, Decent::Net::TlsCommLayer& tls)
+{
+	LOGI("Logging driver's query...");
+
+	std::string msgBuf;
+
+	std::unique_ptr<ComMsg::DriQueryLog> queryLog;
+	if (!tls.ReceiveMsg(connection, msgBuf) ||
+		!(queryLog = ParseMsg<ComMsg::DriQueryLog>(msgBuf)))
+	{
+		return;
+	}
+
+	const ComMsg::Point2D<double>& loc = queryLog->GetLoc();
+
+	LOGI("Logged Driver Query:");
+	LOGI("Driver ID:\n%s", queryLog->GetDriverId().c_str());
+	LOGI("Location: (%f, %f)", loc.GetX(), loc.GetY());
+
+}
+
+extern "C" int ecall_ride_share_dm_from_trip_matcher(void* const connection)
+{
+	using namespace EncFunc::DriverMgm;
+
+	LOGI("Processing message from Trip Matcher...");
+
+	std::shared_ptr<Decent::Ra::TlsConfig> tmTlsCfg = std::make_shared<Decent::Ra::TlsConfig>(AppNames::sk_tripMatcher, gs_state, true);
+	Decent::Net::TlsCommLayer tmTls(connection, tmTlsCfg, true);
+
+	std::string msgBuf;
+	if (!tmTls.ReceiveMsg(connection, msgBuf) ||
+		msgBuf.size() != sizeof(NumType))
+	{
+		LOGW("Recv size: %llu", msgBuf.size());
+		return false;
+	}
+
+	LOGI("TLS Handshake Successful!");
+
+	const NumType funcNum = EncFunc::GetNum<NumType>(msgBuf);
+
+	LOGI("Request Function: %d.", funcNum);
+
+	switch (funcNum)
+	{
+	case k_logQuery:
+		LogQuery(connection, tmTls);
+		break;
+	default:
+		break;
+	}
+
+	return false;
+}
+
+static void RequestPaymentInfo(void* const connection, Decent::Net::TlsCommLayer& tls)
+{
+	LOGI("Processing payment info request...");
+
+	std::string msgBuf;
+	if (!tls.ReceiveMsg(connection, msgBuf))
+	{
+		return;
+	}
+
+	LOGI("Looking for payment info of driver: %s", msgBuf.c_str());
+
+	std::string driPayInfo;
+	std::string selfPayInfo = gs_selfPaymentInfo;
+	{
+		std::unique_lock<std::mutex> profilesLock(gs_profileMapMutex);
+		auto it = gsk_profileMap.find(msgBuf);
+		if (it == gsk_profileMap.cend())
+		{
+			return;
+		}
+		driPayInfo = it->second.m_pay;
+	}
+
+	LOGI("Driver profile is found. Sending payment info...");
+
+	ComMsg::RequestedPayment payInfo(std::move(driPayInfo), std::move(selfPayInfo));
+
+	tls.SendMsg(connection, payInfo.ToString());
+}
+
+extern "C" int ecall_ride_share_dm_from_payment(void* const connection)
+{
+	using namespace EncFunc::DriverMgm;
+
+	LOGI("Processing message from payment services...");
+
+	std::shared_ptr<Decent::Ra::TlsConfig> payTlsCfg = std::make_shared<Decent::Ra::TlsConfig>(AppNames::sk_payment, gs_state, true);
+	Decent::Net::TlsCommLayer payTls(connection, payTlsCfg, true);
+
+	std::string msgBuf;
+	if (!payTls.ReceiveMsg(connection, msgBuf) ||
+		msgBuf.size() != sizeof(NumType))
+	{
+		LOGW("Recv size: %llu", msgBuf.size());
+		return false;
+	}
+
+	LOGI("TLS Handshake Successful!");
+
+	const NumType funcNum = EncFunc::GetNum<NumType>(msgBuf);
+
+	LOGI("Request Function: %d.", funcNum);
+
+	switch (funcNum)
+	{
+	case k_getPayInfo:
+		RequestPaymentInfo(connection, payTls);
+		break;
+	default:
+		break;
+	}
+
+	return false;
+}

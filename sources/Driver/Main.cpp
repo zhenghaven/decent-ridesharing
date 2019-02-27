@@ -1,4 +1,3 @@
-#include <random>
 
 #include <tclap/CmdLine.h>
 #include <boost/asio/ip/address_v4.hpp>
@@ -32,16 +31,9 @@ using namespace Decent;
 using namespace Decent::Tools;
 using namespace Decent::Ra::WhiteList;
 
-bool RegesterCert(Net::Connection& con, const ComMsg::PasContact& contact);
-bool SendQuery(Net::Connection& con, std::string& signedQuote);
-bool ConfirmQuote(Net::Connection& con, const ComMsg::PasContact& contact, const std::string& signedQuoteStr);
-
-namespace
-{
-	static std::random_device gs_randDev;
-	static std::mt19937 gs_randGen(gs_randDev());
-	static std::uniform_real_distribution<> gs_locRandDis(-5.0, 5.0);
-}
+bool RegesterCert(Net::Connection& con, const ComMsg::DriContact& contact);
+std::unique_ptr<ComMsg::BestMatches> SendQuery(Net::Connection& con);
+bool ConfirmMatch(Net::Connection& con, const ComMsg::DriContact& contact, const std::string& tripId);
 
 template<typename MsgType>
 static std::unique_ptr<MsgType> ParseMsg(const std::string& msgStr)
@@ -57,13 +49,6 @@ static std::unique_ptr<MsgType> ParseMsg(const std::string& msgStr)
 	{
 		return nullptr;
 	}
-}
-
-static void Pause(const std::string& msg)
-{
-	std::cout << "Press enter to " << msg << "...";
-	std::string buf;
-	std::getline(std::cin, buf);
 }
 
 /**
@@ -110,28 +95,28 @@ int main(int argc, char ** argv)
 	}
 	state.GetCertContainer().SetCert(cert);
 
-	ComMsg::PasContact contact("pasFirst pasLast", "1234567890");
+	ComMsg::DriContact contact("driFirst driLast", "1234567890", "LicensePlateHere");
 
 	std::unique_ptr<Net::Connection> appCon;
 
-	Pause("register");
-	appCon = ConnectionManager::GetConnection2PassengerMgm(FromPassenger());
+	appCon = ConnectionManager::GetConnection2DriverMgm(FromDriver());
 	if (!RegesterCert(*appCon, contact))
 	{
 		return 1;
 	}
 
-	Pause("get quote");
-	std::string signedQuoteStr;
-	appCon = ConnectionManager::GetConnection2TripPlanner(FromPassenger());
-	if (!SendQuery(*appCon, signedQuoteStr))
+	std::unique_ptr<ComMsg::BestMatches> matches;
+	appCon = ConnectionManager::GetConnection2TripMatcher(FromDriver());
+	if (!(matches = SendQuery(*appCon)) ||
+		matches->GetMatches().size() == 0)
 	{
 		return 1;
 	}
 
-	Pause("confirm quote");
-	appCon = ConnectionManager::GetConnection2TripMatcher(FromPassenger());
-	if (!ConfirmQuote(*appCon, contact, signedQuoteStr))
+	appCon = ConnectionManager::GetConnection2TripMatcher(FromDriver());
+	/*TODO: TripID type in MatchItem class.*/
+	const ComMsg::MatchItem& firstItem = matches->GetMatches()[0];
+	if (!ConfirmMatch(*appCon, contact, firstItem.GetTripId()))
 	{
 		return 1;
 	}
@@ -140,14 +125,14 @@ int main(int argc, char ** argv)
 	return 0;
 }
 
-bool RegesterCert(Net::Connection& con, const ComMsg::PasContact& contact)
+bool RegesterCert(Net::Connection& con, const ComMsg::DriContact& contact)
 {
-	using namespace EncFunc::PassengerMgm;
+	using namespace EncFunc::DriverMgm;
 	Ra::States& state = Ra::States::Get();
 
-	Ra::X509Req certReq(*state.GetKeyContainer().GetSignKeyPair(), "Passenger");
+	Ra::X509Req certReq(*state.GetKeyContainer().GetSignKeyPair(), "Driver");
 
-	ComMsg::PasReg regMsg(contact, "Passneger Payment Info XXXXX", certReq.ToPemString());
+	ComMsg::DriReg regMsg(contact, "Driver Payment Info XXXXX", certReq.ToPemString(), "DriLicense");
 
 	std::shared_ptr<Decent::Ra::TlsConfig> pasTlsCfg = std::make_shared<Decent::Ra::TlsConfig>(AppNames::sk_passengerMgm, state);
 	Decent::Net::TlsCommLayer pasTls(&con, pasTlsCfg, true);
@@ -173,74 +158,50 @@ bool RegesterCert(Net::Connection& con, const ComMsg::PasContact& contact)
 	return true;
 }
 
-static std::unique_ptr<ComMsg::SignedQuote> ParseSignedQuote(const std::string& msg, Ra::States& state)
-{
-	JsonDoc json;
-	if (!ParseStr2Json(json, msg))
-	{
-		return nullptr;
-	}
-
-	try
-	{
-		return std::make_unique<ComMsg::SignedQuote>(ComMsg::SignedQuote::ParseSignedQuote(json, state, AppNames::sk_tripPlanner));
-	}
-	catch (const std::exception&)
-	{
-		return nullptr;
-	}
-}
-
-bool SendQuery(Net::Connection& con, std::string& signedQuoteStr)
-{
-	using namespace EncFunc::TripPlaner;
-	Ra::States& state = Ra::States::Get();
-
-	ComMsg::GetQuote getQuote(ComMsg::Point2D<double>(gs_locRandDis(gs_randGen), gs_locRandDis(gs_randGen)), 
-		ComMsg::Point2D<double>(gs_locRandDis(gs_randGen), gs_locRandDis(gs_randGen)));
-
-	std::shared_ptr<Decent::Ra::TlsConfig> tpTlsCfg = std::make_shared<Decent::Ra::TlsConfig>(AppNames::sk_tripPlanner, state, false);
-	Decent::Net::TlsCommLayer tpTls(&con, tpTlsCfg, true);
-
-	std::unique_ptr<ComMsg::SignedQuote> signedQuote;
-	std::unique_ptr<ComMsg::Quote> quote;
-	if (!tpTls.SendMsg(&con, EncFunc::GetMsgString(k_getQuote)) ||
-		!tpTls.SendMsg(&con, getQuote.ToString()) ||
-		!tpTls.ReceiveMsg(&con, signedQuoteStr) ||
-		!(signedQuote = ParseSignedQuote(signedQuoteStr, state)) ||
-		!(quote = ParseMsg<ComMsg::Quote>(signedQuote->GetQuote())))
-	{
-		return false;
-	}
-
-	LOGI("Received quote with price: %f.", quote->GetPrice().GetPrice());
-
-	return true;
-}
-
-bool ConfirmQuote(Net::Connection& con, const ComMsg::PasContact& contact, const std::string& signedQuoteStr)
+std::unique_ptr<ComMsg::BestMatches> SendQuery(Net::Connection& con)
 {
 	using namespace EncFunc::TripMatcher;
 	Ra::States& state = Ra::States::Get();
 
-	ComMsg::ConfirmQuote confirmQuote(contact, signedQuoteStr);
+	ComMsg::DriverLoc DriLoc(ComMsg::Point2D<double>(1.1, 1.2));
+
+	std::shared_ptr<Decent::Ra::TlsConfig> tmTlsCfg = std::make_shared<Decent::Ra::TlsConfig>(AppNames::sk_tripMatcher, state, false);
+	Decent::Net::TlsCommLayer tmTls(&con, tmTlsCfg, true);
+
+	std::string msgBuf;
+	if (!tmTls.SendMsg(&con, EncFunc::GetMsgString(k_findMatch)) ||
+		!tmTls.SendMsg(&con, DriLoc.ToString()) ||
+		!tmTls.ReceiveMsg(&con, msgBuf) )
+	{
+		return false;
+	}
+
+	return ParseMsg<ComMsg::BestMatches>(msgBuf);
+}
+
+bool ConfirmMatch(Net::Connection& con, const ComMsg::DriContact& contact, const std::string& tripId)
+{
+	using namespace EncFunc::TripMatcher;
+	Ra::States& state = Ra::States::Get();
+
+	ComMsg::DriSelection driSelection(contact, ComMsg::TripId(tripId));
 
 	std::shared_ptr<Decent::Ra::TlsConfig> tmTlsCfg = std::make_shared<Decent::Ra::TlsConfig>(AppNames::sk_tripMatcher, state, false);
 	Decent::Net::TlsCommLayer tmTls(&con, tmTlsCfg, true);
 	
 	std::string msgBuf;
-	std::unique_ptr<ComMsg::PasMatchedResult> matchedResult;
-	if (!tmTls.SendMsg(&con, EncFunc::GetMsgString(k_confirmQuote)) ||
-		!tmTls.SendMsg(&con, confirmQuote.ToString()) ||
+	std::unique_ptr<ComMsg::PasContact> pasContact;
+	if (!tmTls.SendMsg(&con, EncFunc::GetMsgString(k_confirmMatch)) ||
+		!tmTls.SendMsg(&con, driSelection.ToString()) ||
 		!tmTls.ReceiveMsg(&con, msgBuf) ||
-		!(matchedResult = ParseMsg<ComMsg::PasMatchedResult>(msgBuf)) )
+		!(pasContact = ParseMsg<ComMsg::PasContact>(msgBuf)) )
 	{
 		return false;
 	}
 
-	LOGI("Matched Driver:");
-	LOGI("\tName:  %s.", matchedResult->GetDriContact().GetName().c_str());
-	LOGI("\tPhone: %s.", matchedResult->GetDriContact().GetPhone().c_str());
+	LOGI("Matched Passenger:");
+	LOGI("\tName:  %s.", pasContact->GetName().c_str());
+	LOGI("\tPhone: %s.", pasContact->GetPhone().c_str());
 
 	return true;
 }

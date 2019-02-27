@@ -351,6 +351,24 @@ JsonValue & PasContact::ToJson(JsonDoc & doc) const
 	return doc;
 }
 
+Decent::General256Hash PasContact::CalcHash() const
+{
+	using namespace Decent::MbedTlsHelper;
+	Decent::General256Hash hash;
+
+	HashDataList dataList =
+	{
+		{ sk_labelName, sizeof(sk_labelName) },
+		{ m_name.data(), m_name.size() },
+		{ sk_labelPhone, sizeof(sk_labelPhone) },
+		{ m_phone.data(), m_phone.size() },
+	};
+
+	CalcHashSha256(hashListMode, dataList, hash);
+
+	return std::move(hash);
+}
+
 constexpr char const DriContact::sk_labelName[];
 constexpr char const DriContact::sk_labelPhone[];
 constexpr char const DriContact::sk_labelLicPlate[];
@@ -369,6 +387,26 @@ JsonValue & DriContact::ToJson(JsonDoc & doc) const
 	return doc;
 }
 
+Decent::General256Hash DriContact::CalcHash() const
+{
+	using namespace Decent::MbedTlsHelper;
+	Decent::General256Hash hash;
+
+	HashDataList dataList =
+	{
+		{sk_labelName, sizeof(sk_labelName)},
+		{m_name.data(), m_name.size()},
+		{ sk_labelPhone, sizeof(sk_labelPhone) },
+		{ m_phone.data(), m_phone.size()},
+		{ sk_labelLicPlate, sizeof(sk_labelLicPlate) },
+		{ m_licPlate.data(), m_licPlate.size()},
+	};
+
+	CalcHashSha256(hashListMode, dataList, hash);
+
+	return std::move(hash);
+}
+
 constexpr char const ConfirmQuote::sk_labelPasContact[];
 constexpr char const ConfirmQuote::sk_labelSignedQuote[];
 
@@ -378,22 +416,6 @@ JsonValue & ConfirmQuote::ToJson(JsonDoc & doc) const
 
 	Tools::JsonSetVal(doc, sk_labelPasContact, contact);
 	Tools::JsonSetVal(doc, sk_labelSignedQuote, m_signQuote);
-
-	return doc;
-}
-
-constexpr char const ConfirmedQuote::sk_labelPasContact[];
-constexpr char const ConfirmedQuote::sk_labelQuote[];
-constexpr char const ConfirmedQuote::sk_labelOpPayment[];
-
-JsonValue & ConfirmedQuote::ToJson(JsonDoc & doc) const
-{
-	JsonValue contact = std::move(m_contact.ToJson(doc));
-	JsonValue quote = std::move(m_quote.ToJson(doc));
-
-	Tools::JsonSetVal(doc, sk_labelPasContact, contact);
-	Tools::JsonSetVal(doc, sk_labelQuote, quote);
-	Tools::JsonSetVal(doc, sk_labelOpPayment, m_opPayment);
 
 	return doc;
 }
@@ -408,6 +430,20 @@ TripId TripId::Parse(const JsonValue & json, const char * label)
 JsonValue & TripId::ToJson(JsonDoc & doc) const
 {
 	Tools::JsonSetVal(doc, TripId::sk_labelId, m_id);
+
+	return doc;
+}
+
+constexpr char const DriSelection::sk_labelDriContact[];
+constexpr char const DriSelection::sk_labelTripId[];
+
+JsonValue & DriSelection::ToJson(JsonDoc & doc) const
+{
+	JsonValue contact = std::move(m_contact.ToJson(doc));
+	JsonValue tripId = std::move(m_tripId.ToJson(doc));
+
+	Tools::JsonSetVal(doc, sk_labelDriContact, contact);
+	Tools::JsonSetVal(doc, sk_labelTripId, tripId);
 
 	return doc;
 }

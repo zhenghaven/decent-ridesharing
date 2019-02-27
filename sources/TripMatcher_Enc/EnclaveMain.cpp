@@ -1,5 +1,8 @@
+#include <cmath>
+
 #include <memory>
 #include <mutex>
+#include <algorithm>
 #include <condition_variable>
 
 #include <DecentApi/Common/Common.h>
@@ -73,6 +76,9 @@ namespace
 	//const ConfirmedQuotePosMapType& gsk_confirmedQuotePosYMap = gs_confirmedQuotePosYMap;
 	std::map<std::string, ConfirmedQuoteItem*> gs_confirmedQuoteIdMap;
 	std::mutex gs_confirmedQuoteMapMutex;
+
+	constexpr double gsk_distanceLimit = 10.0;
+	constexpr size_t gsk_maxBestMatchSize = 5;
 
 	typedef std::map<std::string, std::shared_ptr<MatchedItem> > MatchedMapType;
 	MatchedMapType gs_matchedMap;
@@ -216,6 +222,8 @@ static void ProcessPasConfirmQuoteReq(void* const connection, Decent::Net::TlsCo
 		return;
 	}
 
+	/*TODO: verify pas contact.*/
+
 	std::string tripId = ConstructTripId(confirmQuote->GetSignQuote());
 	LOGI("Got quote with trip ID: %s.", tripId.c_str());
 	std::unique_ptr<ConfirmedQuoteItem> item = make_unique<ConfirmedQuoteItem>(confirmQuote->GetContact(), *quote, tripId);
@@ -253,7 +261,7 @@ static void ProcessPasConfirmQuoteReq(void* const connection, Decent::Net::TlsCo
 
 }
 
-extern "C" int ecall_ride_share_pm_from_pas(void* const connection)
+extern "C" int ecall_ride_share_tm_from_pas(void* const connection)
 {
 	using namespace EncFunc::TripMatcher;
 
@@ -290,6 +298,85 @@ extern "C" int ecall_ride_share_pm_from_pas(void* const connection)
 	return false;
 }
 
+static std::vector<std::pair<ConfirmedQuoteItem*, double> > FindMatchInitial(const ComMsg::Point2D<double>& driLoc)
+{
+	std::unique_lock<std::mutex> mapLock(gs_confirmedQuoteMapMutex);
+
+	std::map<ConfirmedQuoteItem*, double> midRes1;
+	{
+		auto end = gs_confirmedQuotePosXMap.upper_bound(driLoc.GetX() + gsk_distanceLimit);
+		for (auto it = gs_confirmedQuotePosXMap.lower_bound(driLoc.GetX() - gsk_distanceLimit);
+			it != end; ++it)
+		{
+			double dist = pow(driLoc.GetX() - it->first, 2);
+
+			for (ConfirmedQuoteItem* ptr : it->second)
+			{
+				midRes1[ptr] = dist;
+			}
+		}
+	}
+
+	std::vector<std::pair<ConfirmedQuoteItem*, double> > midRes2;
+	{
+		auto end = gs_confirmedQuotePosYMap.upper_bound(driLoc.GetY() + gsk_distanceLimit);
+		for (auto it = gs_confirmedQuotePosYMap.lower_bound(driLoc.GetY() - gsk_distanceLimit);
+			it != end; ++it)
+		{
+			double dist = pow(driLoc.GetY() - it->first, 2);
+
+			for (ConfirmedQuoteItem* ptr : it->second)
+			{
+				auto midResIt = midRes1.find(ptr);
+				if (midResIt != midRes1.end())
+				{
+					midRes2.push_back(std::make_pair(ptr, sqrt(midResIt->second + dist)));
+				}
+			}
+		}
+	}
+
+	return std::move(midRes2);
+}
+
+static std::vector<ConfirmedQuoteItem*> FindMatchSort(std::vector<std::pair<ConfirmedQuoteItem*, double> >& midRes)
+{
+	std::vector<ConfirmedQuoteItem*> res;
+	res.reserve(midRes.size());
+
+	std::sort(midRes.begin(), midRes.end(), [](const std::pair<ConfirmedQuoteItem*, double>& a, const std::pair<ConfirmedQuoteItem*, double>&b)
+	{
+		return a.second < b.second;
+	});
+
+	LOGI("List of matches:");
+	for (const std::pair<ConfirmedQuoteItem*, double>& item : midRes)
+	{
+		LOGI("\t%#X, %f", item.first, item.second);
+		res.push_back(item.first);
+	}
+
+	return std::move(res);
+}
+
+static std::vector<ComMsg::MatchItem> FindMatchFinal(const std::vector<ConfirmedQuoteItem*>& matchesList)
+{
+	std::vector<ComMsg::MatchItem> res;
+
+	std::unique_lock<std::mutex> mapLock(gs_confirmedQuoteMapMutex);
+
+	for (size_t i = 0; i < matchesList.size() && i < gsk_maxBestMatchSize; ++i)
+	{
+		auto it = gs_confirmedQuoteMap.find(matchesList[i]);
+		if (it != gs_confirmedQuoteMap.end())
+		{
+			res.push_back(ComMsg::MatchItem(it->second->m_tripId, it->second->m_quote.GetPath()));
+		}
+	}
+
+	return std::move(res);
+}
+
 static void DriverFindMatchReq(void* const connection, Decent::Net::TlsCommLayer& tls)
 {
 	LOGI("Process driver find match request...");
@@ -303,14 +390,67 @@ static void DriverFindMatchReq(void* const connection, Decent::Net::TlsCommLayer
 		return;
 	}
 
+	//TODO: Send Query Log
+	
+	std::vector<std::pair<ConfirmedQuoteItem*, double> > midRes = FindMatchInitial(driLoc->GetLoc());
+	const std::vector<ConfirmedQuoteItem*> matchesList = FindMatchSort(midRes);
 
+	const ComMsg::BestMatches bestMatches = FindMatchFinal(matchesList);
+
+	tls.SendMsg(connection, bestMatches.ToString());
 }
 
-extern "C" int ecall_ride_share_pm_from_dri(void* const connection)
+static void DriverConfirmMatchReq(void* const connection, Decent::Net::TlsCommLayer& tls)
+{
+	LOGI("Process driver confirm match request...");
+
+	std::string msgBuf;
+
+	std::unique_ptr<ComMsg::DriSelection> selection;
+	if (!tls.ReceiveMsg(connection, msgBuf) ||
+		!(selection = ParseMsg<ComMsg::DriSelection>(msgBuf)))
+	{
+		return;
+	}
+
+	/*TODO: Verify Driver contact. */
+
+	std::unique_ptr<ComMsg::PasContact> pasContact;
+	{
+		std::unique_lock<std::mutex> mapLock(gs_confirmedQuoteMapMutex);
+
+		auto idMapIt = gs_confirmedQuoteIdMap.find(selection->GetTripId().GetId());
+		if (idMapIt == gs_confirmedQuoteIdMap.end())
+		{
+			return;
+		}
+
+		auto quoteMapIt = gs_confirmedQuoteMap.find(idMapIt->second);
+		if (quoteMapIt == gs_confirmedQuoteMap.end() || 
+			quoteMapIt->second->m_driContact)
+		{
+			return;
+		}
+
+		std::unique_ptr<ConfirmedQuoteItem>& item = quoteMapIt->second;
+
+		item->m_driContact = Tools::make_unique<ComMsg::DriContact>(std::move(selection->GetContact()));
+
+		pasContact = Tools::make_unique<ComMsg::PasContact>(item->m_contact);
+
+		item->m_cond.notify_one();
+	}
+
+	selection.reset();
+
+	tls.SendMsg(connection, pasContact->ToString());
+}
+
+extern "C" int ecall_ride_share_tm_from_dri(void* const connection)
 {
 	using namespace EncFunc::TripMatcher;
 
-	LOGI("Processing message from Trip Planner...");
+	LOGI("Processing message from driver...");
 
 	std::shared_ptr<RideShare::TlsConfig> tlsCfg = std::make_shared<RideShare::TlsConfig>(AppNames::sk_driverMgm, gs_state, true);
 	Decent::Net::TlsCommLayer driTls(connection, tlsCfg, true);
@@ -335,6 +475,8 @@ extern "C" int ecall_ride_share_pm_from_dri(void* const connection)
 		DriverFindMatchReq(connection, driTls);
 		break;
 	case k_confirmMatch:
+		DriverConfirmMatchReq(connection, driTls);
+		break;
 	case k_tripStart:
 	case k_tripEnd:
 	default:

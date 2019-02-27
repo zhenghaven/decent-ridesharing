@@ -171,78 +171,6 @@ static void ProcessGetQuote(void* const connection, Decent::Net::TlsCommLayer& t
 
 }
 
-static void ProcessConfirmQuote(void* const connection, Decent::Net::TlsCommLayer& tls)
-{
-	LOGI("Process Confirm Quote Request.");
-
-	std::string msgBuf;
-	rapidjson::Document json;
-
-	try
-	{
-		if (!tls.ReceiveMsg(connection, msgBuf) ||
-			!Decent::Tools::ParseStr2Json(json, msgBuf))
-		{
-			return;
-		}
-
-		ComMsg::ConfirmQuote confirmQuote(json);
-		json.Clear();
-		
-		if (!Decent::Tools::ParseStr2Json(json, confirmQuote.GetSignQuote()))
-		{
-			return;
-		}
-
-		LOGI("Parsing Signed Quote...");
-		ComMsg::SignedQuote signedQuote = ComMsg::SignedQuote::ParseSignedQuote(json, gs_state, AppNames::sk_tripPlanner);
-		json.Clear();
-
-		if (!Decent::Tools::ParseStr2Json(json, signedQuote.GetQuote()))
-		{
-			return;
-		}
-
-		ComMsg::Quote quote(json);
-		json.Clear();
-
-		ComMsg::ConfirmedQuote confirmedQuote(confirmQuote.GetContact(), quote, "Trip_Planner_Part_2_Payment");
-		
-		LOGI("Sending confirmed quote to a Trip Matcher...");
-
-		void* tmCont = nullptr;
-		uint32_t tmIp = 0;
-		uint16_t tmPort = 0;
-
-		//TODO: Get Connection and address to Trip Matcher
-
-		LOGI("Connecting to a Trip Matcher...");
-		std::shared_ptr<Decent::Ra::TlsConfig> tmTlsCfg = std::make_shared<Decent::Ra::TlsConfig>(AppNames::sk_tripMatcher, gs_state, false);
-		Decent::Net::TlsCommLayer tmTls(tmCont, tmTlsCfg, true);
-
-		if (!tmTls.SendMsg(tmCont, confirmedQuote.ToString()) ||
-			!tmTls.ReceiveMsg(tmCont, msgBuf) ||
-			!Decent::Tools::ParseStr2Json(json, msgBuf))
-		{
-			return;
-		}
-
-		LOGI("TLS Handshake Successful!");
-
-		//TODO: Close connection.
-		
-		ComMsg::TripId tripId(json);
-		json.Clear();
-
-		tls.SendMsg(connection, tripId.ToString());
-
-	}
-	catch (const std::exception&)
-	{
-		return;
-	}
-}
-
 extern "C" int ecall_ride_share_tp_from_pas(void* const connection)
 {
 	using namespace EncFunc::TripPlaner;
@@ -269,9 +197,6 @@ extern "C" int ecall_ride_share_tp_from_pas(void* const connection)
 	{
 	case k_getQuote:
 		ProcessGetQuote(connection, tls);
-		break;
-	case k_confirmQuote:
-		ProcessConfirmQuote(connection, tls);
 		break;
 	default:
 		break;

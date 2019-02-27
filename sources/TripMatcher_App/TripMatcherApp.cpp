@@ -11,8 +11,8 @@ bool TripMatcher::ProcessMsgFromPassenger(Decent::Net::Connection & connection)
 	int retValue = false;
 	sgx_status_t enclaveRet = SGX_SUCCESS;
 
-	enclaveRet = ecall_ride_share_pm_from_pas(GetEnclaveId(), &retValue, &connection);
-	CHECK_SGX_ENCLAVE_RUNTIME_EXCEPTION(enclaveRet, ecall_ride_share_pm_from_pas);
+	enclaveRet = ecall_ride_share_tm_from_pas(GetEnclaveId(), &retValue, &connection);
+	CHECK_SGX_ENCLAVE_RUNTIME_EXCEPTION(enclaveRet, ecall_ride_share_tm_from_pas);
 
 	return retValue;
 }
@@ -22,8 +22,8 @@ bool TripMatcher::ProcessMsgFromDriver(Decent::Net::Connection & connection)
 	int retValue = false;
 	sgx_status_t enclaveRet = SGX_SUCCESS;
 
-	enclaveRet = ecall_ride_share_pm_from_dri(GetEnclaveId(), &retValue, &connection);
-	CHECK_SGX_ENCLAVE_RUNTIME_EXCEPTION(enclaveRet, ecall_ride_share_pm_from_driver);
+	enclaveRet = ecall_ride_share_tm_from_dri(GetEnclaveId(), &retValue, &connection);
+	CHECK_SGX_ENCLAVE_RUNTIME_EXCEPTION(enclaveRet, ecall_ride_share_tm_from_dri);
 
 	return retValue;
 }

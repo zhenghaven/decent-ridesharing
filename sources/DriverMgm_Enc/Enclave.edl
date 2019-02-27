@@ -11,8 +11,9 @@ enclave {
 
 	trusted 
 	{
-		public int ecall_ride_share_tm_from_pas([user_check] void* connection);
-		public int ecall_ride_share_tm_from_dri([user_check] void* connection);
+		public int ecall_ride_share_dm_from_dri([user_check] void* connection);
+		public int ecall_ride_share_dm_from_trip_matcher([user_check] void* connection);
+		public int ecall_ride_share_dm_from_payment([user_check] void* connection);
 	};
 
 };

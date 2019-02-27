@@ -4,7 +4,7 @@ cmake_minimum_required(VERSION 3.11)
 #   Options for Decent Ride Sharing Project
 #==========================================================
 
-set(Enc_Proj_Name_List PassengerMgm TripPlaner TripMatcher Billing)
+set(Enc_Proj_Name_List PassengerMgm TripPlaner DriverMgm TripMatcher Billing)
 
 set(HUNTER_BOOST_RUNTIME_STATIC ON CACHE BOOL "Switch for using boost runtime static linking." FORCE)
 
@@ -224,6 +224,10 @@ endforeach()
 set(SOURCEDIR_Passenger ${SOURCEDIR}/Passenger)
 file(GLOB_RECURSE SOURCES_Passenger ${SOURCEDIR_Passenger}/*.[ch]*)
 
+# Driver Files:
+set(SOURCEDIR_Driver ${SOURCEDIR}/Driver)
+file(GLOB_RECURSE SOURCES_Driver ${SOURCEDIR_Driver}/*.[ch]*)
+
 
 #==========================================================
 #   Setup filters
@@ -368,7 +372,7 @@ foreach(Proj_Name IN ITEMS ${Enc_Proj_Name_List})
 	
 endforeach()
 
-set(Nor_Proj_Name_List Passenger)
+set(Nor_Proj_Name_List Passenger Driver)
 
 foreach(Proj_Name IN ITEMS ${Nor_Proj_Name_List})
 

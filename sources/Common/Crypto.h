@@ -19,7 +19,7 @@ namespace RideShare
 
 		ClientX509(const Decent::MbedTlsObj::ECKeyPublic& pub,
 			const Decent::Ra::AppX509& verifierCert, const Decent::MbedTlsObj::ECKeyPair& verifierPrvKey,
-			const std::string& userName);
+			const std::string& userName, const std::string& clientInfo);
 
 		ClientX509(ClientX509&& other) :
 			Decent::Ra::AppX509(std::forward<Decent::Ra::AppX509>(other))

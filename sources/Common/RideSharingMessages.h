@@ -4,6 +4,7 @@
 #include <vector>
 
 #include <DecentApi/Common/Tools/JsonForwardDeclare.h>
+#include <DecentApi/Common/GeneralKeyTypes.h>
 
 namespace Decent
 {
@@ -385,6 +386,8 @@ namespace RideShare
 			const std::string& GetName() const { return m_name; }
 			const std::string& GetPhone() const { return m_phone; }
 
+			virtual Decent::General256Hash CalcHash() const;
+
 		private:
 			std::string m_name;
 			std::string m_phone;
@@ -437,6 +440,8 @@ namespace RideShare
 			const std::string& GetName() const { return m_name; }
 			const std::string& GetPhone() const { return m_phone; }
 
+			virtual Decent::General256Hash CalcHash() const;
+
 		private:
 			std::string m_name;
 			std::string m_phone;
@@ -488,58 +493,6 @@ namespace RideShare
 			std::string m_signQuote;
 		};
 
-		class ConfirmedQuote : virtual public JsonMsg
-		{
-		public:
-			static constexpr char const sk_labelPasContact[] = "Contact";
-			static constexpr char const sk_labelQuote[] = "Quote";
-			static constexpr char const sk_labelOpPayment[] = "OpPayment";
-
-		public:
-			ConfirmedQuote() = delete;
-
-			ConfirmedQuote(const PasContact& contact, const Quote& quote, const std::string& opPayment) :
-				m_contact(contact),
-				m_quote(quote),
-				m_opPayment(opPayment)
-			{}
-
-			ConfirmedQuote(PasContact&& contact, Quote&& quote, std::string&& opPayment) :
-				m_contact(std::forward<PasContact>(contact)),
-				m_quote(std::forward<Quote>(quote)),
-				m_opPayment(std::forward<std::string>(opPayment))
-			{}
-
-			ConfirmedQuote(const ConfirmedQuote& rhs) :
-				ConfirmedQuote(rhs.m_contact, rhs.m_quote, rhs.m_opPayment)
-			{}
-
-			ConfirmedQuote(ConfirmedQuote&& rhs) :
-				ConfirmedQuote(std::forward<PasContact>(rhs.m_contact),
-					std::forward<Quote>(rhs.m_quote),
-					std::forward<std::string>(rhs.m_opPayment))
-			{}
-
-			ConfirmedQuote(const JsonValue& json) :
-				ConfirmedQuote(PasContact::Parse(json, sk_labelPasContact),
-					Quote::Parse(json, sk_labelQuote),
-					Internal::ParseObj<std::string>(json, sk_labelOpPayment))
-			{}
-
-			~ConfirmedQuote() {}
-
-			virtual JsonValue& ToJson(JsonDoc& doc) const override;
-
-			const PasContact& GetContact() const { return m_contact; }
-			const Quote& GetSignQuote() const { return m_quote; }
-			const std::string& GetOpPayment() const { return m_opPayment; }
-
-		private:
-			PasContact m_contact;
-			Quote m_quote;
-			std::string m_opPayment;
-		};
-
 		class TripId : virtual public JsonMsg
 		{
 		public:
@@ -580,6 +533,51 @@ namespace RideShare
 			std::string m_id;
 		};
 
+		class DriSelection : virtual public JsonMsg
+		{
+		public:
+			static constexpr char const sk_labelDriContact[] = "Contact";
+			static constexpr char const sk_labelTripId[] = "TripId";
+
+		public:
+			DriSelection() = delete;
+
+			DriSelection(const DriContact& contact, const TripId& tripId) :
+				m_contact(contact),
+				m_tripId(tripId)
+			{}
+
+			DriSelection(DriContact&& contact, TripId&& tripId) :
+				m_contact(std::forward<DriContact>(contact)),
+				m_tripId(std::forward<TripId>(tripId))
+			{}
+
+			DriSelection(const DriSelection& rhs) :
+				DriSelection(rhs.m_contact, rhs.m_tripId)
+			{}
+
+			DriSelection(DriSelection&& rhs) :
+				DriSelection(std::forward<DriContact>(rhs.m_contact),
+					std::forward<TripId>(rhs.m_tripId))
+			{}
+
+			DriSelection(const JsonValue& json) :
+				DriSelection(DriContact::Parse(json, sk_labelDriContact),
+					TripId::Parse(json, sk_labelTripId))
+			{}
+
+			~DriSelection() {}
+
+			virtual JsonValue& ToJson(JsonDoc& doc) const override;
+
+			const DriContact& GetContact() const { return m_contact; }
+			const TripId& GetTripId() const { return m_tripId; }
+
+		private:
+			DriContact m_contact;
+			TripId m_tripId;
+		};
+
 		class PasMatchedResult : virtual public JsonMsg
 		{
 		public:
@@ -617,7 +615,7 @@ namespace RideShare
 
 			virtual JsonValue& ToJson(JsonDoc& doc) const override;
 
-			const DriContact& GetPort() const { return m_driContact; }
+			const DriContact& GetDriContact() const { return m_driContact; }
 			const TripId& GetTripId() const { return m_tripId; }
 
 		private:
@@ -743,8 +741,8 @@ namespace RideShare
 
 			virtual JsonValue& ToJson(JsonDoc& doc) const override;
 
-			const std::string& GetTripId() { return m_tripId; }
-			const Path& GetPath() { return m_path; }
+			const std::string& GetTripId() const { return m_tripId; }
+			const Path& GetPath() const { return m_path; }
 
 		private:
 			std::string m_tripId;
@@ -828,7 +826,7 @@ namespace RideShare
 			virtual JsonValue& ToJson(JsonDoc& doc) const override;
 
 			const std::string& GetDriverId() const { return m_driverId; }
-			const Point2D<double>& GetGetQuote() const { return m_loc; }
+			const Point2D<double>& GetLoc() const { return m_loc; }
 
 		private:
 			std::string m_driverId;
