@@ -58,10 +58,14 @@ namespace
 	struct MatchedItem
 	{
 		ComMsg::Quote m_quote;
+		bool m_isEndByPas;
+		bool m_isEndByDri;
 		std::mutex m_mutex;
 
 		MatchedItem(ComMsg::Quote&& quote) :
-			m_quote(std::forward<ComMsg::Quote>(quote))
+			m_quote(std::forward<ComMsg::Quote>(quote)),
+			m_isEndByPas(false),
+			m_isEndByDri(false)
 		{}
 	};
 
@@ -261,6 +265,99 @@ static void ProcessPasConfirmQuoteReq(void* const connection, Decent::Net::TlsCo
 
 }
 
+static void TripStart(void* const connection, Decent::Net::TlsCommLayer& tls, const bool isPassenger)
+{
+	LOGI("Processing trip start from %s...", isPassenger ? "passenger" : "driver");
+
+	std::string tripId;
+
+	if (!tls.ReceiveMsg(connection, tripId))
+	{
+		return;
+	}
+
+	std::shared_ptr<MatchedItem> item;
+	{
+		//Check if it's in the map.
+		std::unique_lock<std::mutex> mapLock(gs_matchedMapMutex);
+		auto it = gs_matchedMap.find(tripId);
+		if (it != gs_matchedMap.end())
+		{
+			item = it->second;
+		}
+	}
+
+	LOGI("The trip is %s. The ID is %s.", item ? "found" : "not found", tripId.c_str());
+}
+
+static void ProcessPayment(const std::shared_ptr<MatchedItem>& item)
+{
+	ComMsg::FinalBill bill(std::move(item->m_quote), std::string(gs_selfPaymentInfo));
+
+	LOGI("Sending final bill to payment services.");
+}
+
+static void TripEnd(void* const connection, Decent::Net::TlsCommLayer& tls, const bool isPassenger)
+{
+	LOGI("Processing trip end from %s...", isPassenger ? "passenger" : "driver");
+
+	std::string tripId;
+
+	if (!tls.ReceiveMsg(connection, tripId))
+	{
+		return;
+	}
+
+	std::shared_ptr<MatchedItem> item;
+	{
+		//Check if it's in the map.
+		std::unique_lock<std::mutex> mapLock(gs_matchedMapMutex);
+		auto it = gs_matchedMap.find(tripId);
+		if (it != gs_matchedMap.end())
+		{
+			item = it->second;
+		}
+	}
+
+	LOGI("The trip is %s. The ID is %s.", item ? "found" : "not found", tripId.c_str());
+
+	if (!item)
+	{
+		return;
+	}
+
+	std::unique_lock<std::mutex> itemLock(item->m_mutex);
+
+	if (item->m_isEndByPas && item->m_isEndByDri) //Trip is already finished by other process.
+	{
+		return;
+	}
+
+	switch (isPassenger)
+	{
+	case false: //zero
+		item->m_isEndByDri = true;
+		break;
+	default: //true, non-zero
+		item->m_isEndByPas = true;
+		break;
+	}
+
+	if (item->m_isEndByPas && item->m_isEndByDri) //Trip is finished.
+	{
+		{//Remove it from map first.
+			std::unique_lock<std::mutex> mapLock(gs_matchedMapMutex);
+			auto it = gs_matchedMap.find(tripId);
+			if (it != gs_matchedMap.end())
+			{
+				gs_matchedMap.erase(it);
+			}
+		}
+		
+		ProcessPayment(item); //Caution: m_quote in item become invalid after this call!
+	}
+}
+
 extern "C" int ecall_ride_share_tm_from_pas(void* const connection)
 {
 	using namespace EncFunc::TripMatcher;
@@ -290,7 +387,11 @@ extern "C" int ecall_ride_share_tm_from_pas(void* const connection)
 		ProcessPasConfirmQuoteReq(connection, pasTls);
 		break;
 	case k_tripStart:
+		TripStart(connection, pasTls, true);
+		break;
 	case k_tripEnd:
+		TripEnd(connection, pasTls, true);
+		break;
 	default:
 		break;
 	}
@@ -433,6 +534,7 @@ static void DriverConfirmMatchReq(void* const connection, Decent::Net::TlsCommLa
 		}
 
 		std::unique_ptr<ConfirmedQuoteItem>& item = quoteMapIt->second;
+		std::unique_lock<std::mutex> itemLock(item->m_mutex);
 
 		item->m_driContact = Tools::make_unique<ComMsg::DriContact>(std::move(selection->GetContact()));
 
@@ -478,7 +580,11 @@ extern "C" int ecall_ride_share_tm_from_dri(void* const connection)
 		DriverConfirmMatchReq(connection, driTls);
 		break;
 	case k_tripStart:
+		TripStart(connection, driTls, false);
+		break;
 	case k_tripEnd:
+		TripEnd(connection, driTls, false);
+		break;
 	default:
 		break;
 	}

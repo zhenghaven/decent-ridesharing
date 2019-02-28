@@ -34,6 +34,7 @@ using namespace Decent::Ra::WhiteList;
 bool RegesterCert(Net::Connection& con, const ComMsg::DriContact& contact);
 std::unique_ptr<ComMsg::BestMatches> SendQuery(Net::Connection& con);
 bool ConfirmMatch(Net::Connection& con, const ComMsg::DriContact& contact, const std::string& tripId);
+bool TripStartOrEnd(Net::Connection& con, const std::string& tripId, const bool isStart);
 
 template<typename MsgType>
 static std::unique_ptr<MsgType> ParseMsg(const std::string& msgStr)
@@ -61,7 +62,7 @@ static std::unique_ptr<MsgType> ParseMsg(const std::string& msgStr)
 */
 int main(int argc, char ** argv)
 {
-	std::cout << "================ Passenger ================" << std::endl;
+	std::cout << "================ Driver ================" << std::endl;
 
 	TCLAP::CmdLine cmd("Passenger", ' ', "ver", true);
 
@@ -116,7 +117,20 @@ int main(int argc, char ** argv)
 	appCon = ConnectionManager::GetConnection2TripMatcher(FromDriver());
 	/*TODO: TripID type in MatchItem class.*/
 	const ComMsg::MatchItem& firstItem = matches->GetMatches()[0];
-	if (!ConfirmMatch(*appCon, contact, firstItem.GetTripId()))
+	const std::string tripId = firstItem.GetTripId();
+	if (!ConfirmMatch(*appCon, contact, tripId))
+	{
+		return 1;
+	}
+
+	appCon = ConnectionManager::GetConnection2TripMatcher(FromDriver());
+	if (!TripStartOrEnd(*appCon, tripId, true))
+	{
+		return 1;
+	}
+
+	appCon = ConnectionManager::GetConnection2TripMatcher(FromDriver());
+	if (!TripStartOrEnd(*appCon, tripId, false))
 	{
 		return 1;
 	}
@@ -202,6 +216,26 @@ bool ConfirmMatch(Net::Connection& con, const ComMsg::DriContact& contact, const
 	LOGI("Matched Passenger:");
 	LOGI("\tName:  %s.", pasContact->GetName().c_str());
 	LOGI("\tPhone: %s.", pasContact->GetPhone().c_str());
+
+	return true;
+}
+
+bool TripStartOrEnd(Net::Connection& con, const std::string& tripId, const bool isStart)
+{
+	using namespace EncFunc::TripMatcher;
+	Ra::States& state = Ra::States::Get();
+
+	std::shared_ptr<Decent::Ra::TlsConfig> tmTlsCfg = std::make_shared<Decent::Ra::TlsConfig>(AppNames::sk_tripMatcher, state, false);
+	Decent::Net::TlsCommLayer tmTls(&con, tmTlsCfg, true);
+
+	if (!tmTls.SendMsg(&con, EncFunc::GetMsgString(isStart ? k_tripStart : k_tripEnd)) ||
+		!tmTls.SendMsg(&con, tripId))
+	{
+		LOGW("Failed to send trip %s.", isStart ? "start" : "end");
+		return false;
+	}
+
+	LOGW("Trip %s.", isStart ? "started" : "ended");
 
 	return true;
 }

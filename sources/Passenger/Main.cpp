@@ -34,7 +34,8 @@ using namespace Decent::Ra::WhiteList;
 
 bool RegesterCert(Net::Connection& con, const ComMsg::PasContact& contact);
 bool SendQuery(Net::Connection& con, std::string& signedQuote);
-bool ConfirmQuote(Net::Connection& con, const ComMsg::PasContact& contact, const std::string& signedQuoteStr);
+bool ConfirmQuote(Net::Connection& con, const ComMsg::PasContact& contact, const std::string& signedQuoteStr, std::string& tripId);
+bool TripStartOrEnd(Net::Connection& con, const std::string& tripId, const bool isStart);
 
 namespace
 {
@@ -130,8 +131,23 @@ int main(int argc, char ** argv)
 	}
 
 	Pause("confirm quote");
+	std::string tripId;
 	appCon = ConnectionManager::GetConnection2TripMatcher(FromPassenger());
-	if (!ConfirmQuote(*appCon, contact, signedQuoteStr))
+	if (!ConfirmQuote(*appCon, contact, signedQuoteStr, tripId))
+	{
+		return 1;
+	}
+
+	Pause("start trip");
+	appCon = ConnectionManager::GetConnection2TripMatcher(FromPassenger());
+	if (!TripStartOrEnd(*appCon, tripId, true))
+	{
+		return 1;
+	}
+
+	Pause("end trip");
+	appCon = ConnectionManager::GetConnection2TripMatcher(FromPassenger());
+	if (!TripStartOrEnd(*appCon, tripId, false))
 	{
 		return 1;
 	}
@@ -218,7 +234,7 @@ bool SendQuery(Net::Connection& con, std::string& signedQuoteStr)
 	return true;
 }
 
-bool ConfirmQuote(Net::Connection& con, const ComMsg::PasContact& contact, const std::string& signedQuoteStr)
+bool ConfirmQuote(Net::Connection& con, const ComMsg::PasContact& contact, const std::string& signedQuoteStr, std::string& tripId)
 {
 	using namespace EncFunc::TripMatcher;
 	Ra::States& state = Ra::States::Get();
@@ -241,6 +257,28 @@ bool ConfirmQuote(Net::Connection& con, const ComMsg::PasContact& contact, const
 	LOGI("Matched Driver:");
 	LOGI("\tName:  %s.", matchedResult->GetDriContact().GetName().c_str());
 	LOGI("\tPhone: %s.", matchedResult->GetDriContact().GetPhone().c_str());
+
+	tripId = matchedResult->GetTripId().GetId();
+
+	return true;
+}
+
+bool TripStartOrEnd(Net::Connection& con, const std::string& tripId, const bool isStart)
+{
+	using namespace EncFunc::TripMatcher;
+	Ra::States& state = Ra::States::Get();
+
+	std::shared_ptr<Decent::Ra::TlsConfig> tmTlsCfg = std::make_shared<Decent::Ra::TlsConfig>(AppNames::sk_tripMatcher, state, false);
+	Decent::Net::TlsCommLayer tmTls(&con, tmTlsCfg, true);
+
+	if (!tmTls.SendMsg(&con, EncFunc::GetMsgString(isStart ? k_tripStart : k_tripEnd)) ||
+		!tmTls.SendMsg(&con, tripId) )
+	{
+		LOGW("Failed to send trip %s.", isStart ? "start" : "end");
+		return false;
+	}
+
+	LOGW("Trip %s.", isStart ? "started" : "ended");
 
 	return true;
 }
