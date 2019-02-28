@@ -420,30 +420,15 @@ JsonValue & ConfirmQuote::ToJson(JsonDoc & doc) const
 	return doc;
 }
 
-constexpr char const TripId::sk_labelId[];
-
-TripId TripId::Parse(const JsonValue & json, const char * label)
-{
-	return ParseSubObj<TripId>(json, label);
-}
-
-JsonValue & TripId::ToJson(JsonDoc & doc) const
-{
-	Tools::JsonSetVal(doc, TripId::sk_labelId, m_id);
-
-	return doc;
-}
-
 constexpr char const DriSelection::sk_labelDriContact[];
 constexpr char const DriSelection::sk_labelTripId[];
 
 JsonValue & DriSelection::ToJson(JsonDoc & doc) const
 {
 	JsonValue contact = std::move(m_contact.ToJson(doc));
-	JsonValue tripId = std::move(m_tripId.ToJson(doc));
 
 	Tools::JsonSetVal(doc, sk_labelDriContact, contact);
-	Tools::JsonSetVal(doc, sk_labelTripId, tripId);
+	Tools::JsonSetVal(doc, sk_labelTripId, m_tripId);
 
 	return doc;
 }
@@ -453,10 +438,9 @@ constexpr char const PasMatchedResult::sk_labelDriContact[];
 
 JsonValue & PasMatchedResult::ToJson(JsonDoc & doc) const
 {
-	JsonValue id = std::move(m_tripId.ToJson(doc));
 	JsonValue dirContact = std::move(m_driContact.ToJson(doc));
 
-	Tools::JsonSetVal(doc, sk_labelTripId, id);
+	Tools::JsonSetVal(doc, sk_labelTripId, m_tripId);
 	Tools::JsonSetVal(doc, sk_labelDriContact, dirContact);
 
 	return doc;

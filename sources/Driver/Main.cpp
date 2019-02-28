@@ -115,7 +115,6 @@ int main(int argc, char ** argv)
 	}
 
 	appCon = ConnectionManager::GetConnection2TripMatcher(FromDriver());
-	/*TODO: TripID type in MatchItem class.*/
 	const ComMsg::MatchItem& firstItem = matches->GetMatches()[0];
 	const std::string tripId = firstItem.GetTripId();
 	if (!ConfirmMatch(*appCon, contact, tripId))
@@ -198,7 +197,7 @@ bool ConfirmMatch(Net::Connection& con, const ComMsg::DriContact& contact, const
 	using namespace EncFunc::TripMatcher;
 	Ra::States& state = Ra::States::Get();
 
-	ComMsg::DriSelection driSelection(contact, ComMsg::TripId(tripId));
+	ComMsg::DriSelection driSelection(contact, tripId);
 
 	std::shared_ptr<Decent::Ra::TlsConfig> tmTlsCfg = std::make_shared<Decent::Ra::TlsConfig>(AppNames::sk_tripMatcher, state, false);
 	Decent::Net::TlsCommLayer tmTls(&con, tmTlsCfg, true);
@@ -235,7 +234,7 @@ bool TripStartOrEnd(Net::Connection& con, const std::string& tripId, const bool 
 		return false;
 	}
 
-	LOGW("Trip %s.", isStart ? "started" : "ended");
+	LOGI("Trip %s.", isStart ? "started" : "ended");
 
 	return true;
 }

@@ -209,6 +209,13 @@ static void AddMatchedItem(const std::string& tripId, std::shared_ptr<MatchedIte
 	}
 }
 
+static bool VerifyContactHash(const std::string& certPem, const Decent::General256Hash& contactHash)
+{
+	ClientX509 cert(certPem);
+
+	return cert.GetAppId() == cppcodec::base64_rfc4648::encode(contactHash);
+}
+
 static void ProcessPasConfirmQuoteReq(void* const connection, Decent::Net::TlsCommLayer& tls)
 {
 	LOGI("Processing passenger confirm request...");
@@ -226,7 +233,12 @@ static void ProcessPasConfirmQuoteReq(void* const connection, Decent::Net::TlsCo
 		return;
 	}
 
-	/*TODO: verify pas contact.*/
+	//verify pas contact.
+	if (!VerifyContactHash(tls.GetPeerCertPem(), confirmQuote->GetContact().CalcHash()))
+	{
+		LOGI("Passenger's contact doesn't match!");
+		return;
+	}
 
 	std::string tripId = ConstructTripId(confirmQuote->GetSignQuote());
 	LOGI("Got quote with trip ID: %s.", tripId.c_str());
@@ -514,13 +526,18 @@ static void DriverConfirmMatchReq(void* const connection, Decent::Net::TlsCommLa
 		return;
 	}
 
-	/*TODO: Verify Driver contact. */
+	//verify pas contact.
+	if (!VerifyContactHash(tls.GetPeerCertPem(), selection->GetContact().CalcHash()))
+	{
+		LOGI("Driver's contact doesn't match!");
+		return;
+	}
 
 	std::unique_ptr<ComMsg::PasContact> pasContact;
 	{
 		std::unique_lock<std::mutex> mapLock(gs_confirmedQuoteMapMutex);
 
-		auto idMapIt = gs_confirmedQuoteIdMap.find(selection->GetTripId().GetId());
+		auto idMapIt = gs_confirmedQuoteIdMap.find(selection->GetTripId());
 		if (idMapIt == gs_confirmedQuoteIdMap.end())
 		{
 			return;

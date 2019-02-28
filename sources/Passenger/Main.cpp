@@ -258,7 +258,7 @@ bool ConfirmQuote(Net::Connection& con, const ComMsg::PasContact& contact, const
 	LOGI("\tName:  %s.", matchedResult->GetDriContact().GetName().c_str());
 	LOGI("\tPhone: %s.", matchedResult->GetDriContact().GetPhone().c_str());
 
-	tripId = matchedResult->GetTripId().GetId();
+	tripId = matchedResult->GetTripId();
 
 	return true;
 }
@@ -278,7 +278,7 @@ bool TripStartOrEnd(Net::Connection& con, const std::string& tripId, const bool 
 		return false;
 	}
 
-	LOGW("Trip %s.", isStart ? "started" : "ended");
+	LOGI("Trip %s.", isStart ? "started" : "ended");
 
 	return true;
 }

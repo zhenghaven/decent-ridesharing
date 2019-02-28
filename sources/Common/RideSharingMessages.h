@@ -493,46 +493,6 @@ namespace RideShare
 			std::string m_signQuote;
 		};
 
-		class TripId : virtual public JsonMsg
-		{
-		public:
-			static constexpr char const sk_labelId[] = "Id";
-
-			static TripId Parse(const JsonValue& json, const char* label);
-
-		public:
-			TripId() = delete;
-
-			TripId(const std::string& id) :
-				m_id(id)
-			{}
-
-			TripId(std::string&& id) :
-				m_id(std::forward<std::string>(id))
-			{}
-
-			TripId(const TripId& rhs) :
-				TripId(rhs.m_id)
-			{}
-
-			TripId(TripId&& rhs) :
-				TripId(std::forward<std::string>(rhs.m_id))
-			{}
-
-			TripId(const JsonValue& json) :
-				TripId(Internal::ParseObj<std::string>(json, sk_labelId))
-			{}
-
-			~TripId() {}
-
-			virtual JsonValue& ToJson(JsonDoc& doc) const override;
-
-			const std::string& GetId() const { return m_id; }
-
-		private:
-			std::string m_id;
-		};
-
 		class DriSelection : virtual public JsonMsg
 		{
 		public:
@@ -542,14 +502,14 @@ namespace RideShare
 		public:
 			DriSelection() = delete;
 
-			DriSelection(const DriContact& contact, const TripId& tripId) :
+			DriSelection(const DriContact& contact, const std::string& tripId) :
 				m_contact(contact),
 				m_tripId(tripId)
 			{}
 
-			DriSelection(DriContact&& contact, TripId&& tripId) :
+			DriSelection(DriContact&& contact, std::string&& tripId) :
 				m_contact(std::forward<DriContact>(contact)),
-				m_tripId(std::forward<TripId>(tripId))
+				m_tripId(std::forward<std::string>(tripId))
 			{}
 
 			DriSelection(const DriSelection& rhs) :
@@ -558,12 +518,12 @@ namespace RideShare
 
 			DriSelection(DriSelection&& rhs) :
 				DriSelection(std::forward<DriContact>(rhs.m_contact),
-					std::forward<TripId>(rhs.m_tripId))
+					std::forward<std::string>(rhs.m_tripId))
 			{}
 
 			DriSelection(const JsonValue& json) :
 				DriSelection(DriContact::Parse(json, sk_labelDriContact),
-					TripId::Parse(json, sk_labelTripId))
+					Internal::ParseObj<std::string>(json, sk_labelTripId))
 			{}
 
 			~DriSelection() {}
@@ -571,11 +531,11 @@ namespace RideShare
 			virtual JsonValue& ToJson(JsonDoc& doc) const override;
 
 			const DriContact& GetContact() const { return m_contact; }
-			const TripId& GetTripId() const { return m_tripId; }
+			const std::string& GetTripId() const { return m_tripId; }
 
 		private:
 			DriContact m_contact;
-			TripId m_tripId;
+			std::string m_tripId;
 		};
 
 		class PasMatchedResult : virtual public JsonMsg
@@ -587,13 +547,13 @@ namespace RideShare
 		public:
 			PasMatchedResult() = delete;
 
-			PasMatchedResult(const TripId& tripId, const DriContact& driContact) :
+			PasMatchedResult(const std::string& tripId, const DriContact& driContact) :
 				m_tripId(tripId),
 				m_driContact(driContact)
 			{}
 
-			PasMatchedResult(TripId&& tripId, DriContact&& driContact) :
-				m_tripId(std::forward<TripId>(tripId)),
+			PasMatchedResult(std::string&& tripId, DriContact&& driContact) :
+				m_tripId(std::forward<std::string>(tripId)),
 				m_driContact(std::forward<DriContact>(driContact))
 			{}
 
@@ -602,12 +562,12 @@ namespace RideShare
 			{}
 
 			PasMatchedResult(PasMatchedResult&& rhs) :
-				PasMatchedResult(std::forward<TripId>(rhs.m_tripId),
+				PasMatchedResult(std::forward<std::string>(rhs.m_tripId),
 					std::forward<DriContact>(rhs.m_driContact))
 			{}
 
 			PasMatchedResult(const JsonValue& json) :
-				PasMatchedResult(TripId::Parse(json, sk_labelTripId),
+				PasMatchedResult(Internal::ParseObj<std::string>(json, sk_labelTripId),
 					DriContact::Parse(json, sk_labelDriContact))
 			{}
 
@@ -616,11 +576,11 @@ namespace RideShare
 			virtual JsonValue& ToJson(JsonDoc& doc) const override;
 
 			const DriContact& GetDriContact() const { return m_driContact; }
-			const TripId& GetTripId() const { return m_tripId; }
+			const std::string& GetTripId() const { return m_tripId; }
 
 		private:
 			DriContact m_driContact;
-			TripId m_tripId;
+			std::string m_tripId;
 		};
 
 		class PasQueryLog : virtual public JsonMsg

@@ -131,18 +131,13 @@ static void ProcessGetQuote(void* const connection, Decent::Net::TlsCommLayer& t
 		return;
 	}
 
-	Decent::MbedTlsObj::X509Cert peerCert = tls.GetPeerCert();
+	ClientX509 peerCert = tls.GetPeerCertPem();
 	if (!peerCert)
 	{
 		return;
 	}
-	Decent::MbedTlsObj::ECKeyPublic ecPubKey = Decent::MbedTlsObj::ECKeyPublic(*peerCert.GetPublicKey().Get());
-	if (!ecPubKey)
-	{
-		return;
-	}
 
-	if (!SendQueryLog(ecPubKey.ToPubPemString(), *getQuote))
+	if (!SendQueryLog(peerCert.GetEcPublicKey().ToPubPemString(), *getQuote))
 	{
 		return;
 	}
