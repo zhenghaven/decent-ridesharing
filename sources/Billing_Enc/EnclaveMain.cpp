@@ -94,7 +94,7 @@ static void ProcessCalPriceReq(void* const connection, Decent::Net::TlsCommLayer
 
 }
 
-extern "C" int ecall_ride_share_pm_from_trip_planner(void* const connection)
+extern "C" int ecall_ride_share_bill_from_trip_planner(void* const connection)
 {
 	using namespace EncFunc::Billing;
 

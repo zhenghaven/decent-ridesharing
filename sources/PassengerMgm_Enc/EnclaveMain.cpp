@@ -236,19 +236,19 @@ static void RequestPaymentInfo(void* const connection, Decent::Net::TlsCommLayer
 {
 	LOGI("Processing payment info request...");
 
-	std::string msgBuf;
-	if (!tls.ReceiveMsg(connection, msgBuf))
+	std::string pasId;
+	if (!tls.ReceiveMsg(connection, pasId))
 	{
 		return;
 	}
 
-	LOGI("Looking for payment info of passenger: %s", msgBuf.c_str());
+	LOGI("Looking for payment info of passenger: %s", pasId.c_str());
 
 	std::string pasPayInfo;
 	std::string selfPayInfo = gs_selfPaymentInfo;
 	{
 		std::unique_lock<std::mutex> pasProfilesLock(gs_pasProfilesMutex);
-		auto it = gsk_pasProfiles.find(msgBuf);
+		auto it = gsk_pasProfiles.find(pasId);
 		if (it == gsk_pasProfiles.cend())
 		{
 			return;

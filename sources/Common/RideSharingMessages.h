@@ -46,7 +46,6 @@ namespace RideShare
 			template<>
 			std::string Internal::ParseObj<std::string>(const JsonValue & json, const char * label);
 
-			std::string ParseOpPayment(const JsonValue& json, const char* label);
 		}
 
 		class JsonMsg
@@ -222,7 +221,7 @@ namespace RideShare
 
 			Price(const JsonValue& json) :
 				Price(Internal::ParseObj<double>(json, sk_labelPrice),
-					Internal::ParseOpPayment(json, sk_labelOpPayment))
+					Internal::ParseObj<std::string>(json, sk_labelOpPayment))
 			{}
 
 			~Price() {}
@@ -244,41 +243,46 @@ namespace RideShare
 			static constexpr char const sk_labelPath[] = "Path";
 			static constexpr char const sk_labelPrice[] = "Price";
 			static constexpr char const sk_labelOpPayment[] = "OpPay";
+			static constexpr char const sk_labelPasId[] = "PasId";
 
 			static Quote Parse(const JsonValue& json, const char* label);
 
 		public:
 			Quote() = delete;
-			Quote(const GetQuote& quote, const Path& path, const Price& price, const std::string& opPayment) :
+			Quote(const GetQuote& quote, const Path& path, const Price& price, const std::string& opPayment, const std::string& pasId) :
 				m_getQuote(quote),
 				m_path(path),
 				m_price(price),
-				m_opPayment(opPayment)
+				m_opPayment(opPayment),
+				m_pasId(pasId)
 			{}
 
-			Quote(GetQuote&& quote, Path&& path, Price&& price, std::string&& opPayment) :
+			Quote(GetQuote&& quote, Path&& path, Price&& price, std::string&& opPayment, std::string&& pasId) :
 				m_getQuote(std::forward<GetQuote>(quote)),
 				m_path(std::forward<Path>(path)),
 				m_price(std::forward<Price>(price)),
-				m_opPayment(std::forward<std::string>(opPayment))
+				m_opPayment(std::forward<std::string>(opPayment)),
+				m_pasId(std::forward<std::string>(pasId))
 			{}
 
 			Quote(const Quote& rhs) :
-				Quote(rhs.m_getQuote, rhs.m_path, rhs.m_price, rhs.m_opPayment)
+				Quote(rhs.m_getQuote, rhs.m_path, rhs.m_price, rhs.m_opPayment, rhs.m_pasId)
 			{}
 
 			Quote(Quote&& rhs) :
 				Quote(std::forward<GetQuote>(rhs.m_getQuote),
 					std::forward<Path>(rhs.m_path),
 					std::forward<Price>(rhs.m_price),
-					std::forward<std::string>(rhs.m_opPayment))
+					std::forward<std::string>(rhs.m_opPayment),
+					std::forward<std::string>(rhs.m_pasId))
 			{}
 
 			Quote(const JsonValue& json) :
 				Quote(GetQuote::Parse(json, sk_labelGetQuote),
 					Path::Parse(json, sk_labelPath),
 					Price::Parse(json, sk_labelPrice),
-					Internal::ParseOpPayment(json, sk_labelOpPayment))
+					Internal::ParseObj<std::string>(json, sk_labelOpPayment),
+					Internal::ParseObj<std::string>(json, sk_labelPasId))
 			{}
 
 			~Quote() {}
@@ -289,12 +293,14 @@ namespace RideShare
 			const Path& GetPath() const { return m_path; }
 			const Price& GetPrice() const { return m_price; }
 			const std::string& GetOpPayment() const { return m_opPayment; }
+			const std::string& GetPasId() const { return m_pasId; }
 
 		private:
 			GetQuote m_getQuote;
 			Path m_path;
 			Price m_price;
 			std::string m_opPayment;
+			std::string m_pasId;
 		};
 
 		class SignedQuote : virtual public JsonMsg
@@ -798,32 +804,37 @@ namespace RideShare
 		public:
 			static constexpr char const sk_labelQuote[] = "Quote";
 			static constexpr char const sk_labelOpPayment[] = "OpPay";
+			static constexpr char const sk_labelDriId[] = "DriId";
 
 		public:
 			FinalBill() = delete;
 
-			FinalBill(const Quote& quote, const std::string& opPayment) :
+			FinalBill(const Quote& quote, const std::string& opPayment, const std::string& driId) :
 				m_quote(quote),
-				m_opPay(opPayment)
+				m_opPay(opPayment),
+				m_driId(driId)
 			{}
 
-			FinalBill(Quote&& quote, std::string&& opPayment) :
+			FinalBill(Quote&& quote, std::string&& opPayment, std::string&& driId) :
 				m_quote(std::forward<Quote>(quote)),
-				m_opPay(std::forward<std::string>(opPayment))
+				m_opPay(std::forward<std::string>(opPayment)),
+				m_driId(std::forward<std::string>(driId))
 			{}
 
 			FinalBill(const FinalBill& rhs) :
-				FinalBill(rhs.m_quote, rhs.m_opPay)
+				FinalBill(rhs.m_quote, rhs.m_opPay, rhs.m_driId)
 			{}
 
 			FinalBill(FinalBill&& rhs) :
 				FinalBill(std::forward<Quote>(rhs.m_quote),
-					std::forward<std::string>(rhs.m_opPay))
+					std::forward<std::string>(rhs.m_opPay),
+					std::forward<std::string>(rhs.m_driId))
 			{}
 
 			FinalBill(const JsonValue& json) :
 				FinalBill(Quote::Parse(json, sk_labelQuote),
-					Internal::ParseObj<std::string>(json, sk_labelOpPayment))
+					Internal::ParseObj<std::string>(json, sk_labelOpPayment),
+					Internal::ParseObj<std::string>(json, sk_labelDriId))
 			{}
 
 			~FinalBill() {}
@@ -832,10 +843,12 @@ namespace RideShare
 
 			const Quote& GetQuote() const { return m_quote; }
 			const std::string& GetOpPayment() const { return m_opPay; }
+			const std::string& GetDriId() const { return m_driId; }
 
 		private:
 			Quote m_quote;
 			std::string m_opPay;
+			std::string m_driId;
 		};
 
 		class PasReg : virtual public JsonMsg
@@ -986,8 +999,8 @@ namespace RideShare
 
 			virtual JsonValue& ToJson(JsonDoc& doc) const override;
 
-			const std::string& GetCsr() const { return m_pay; }
-			const std::string& GetDriLic() const { return m_opPay; }
+			const std::string& GetPayemnt() const { return m_pay; }
+			const std::string& GetOpPayment() const { return m_opPay; }
 
 		private:
 			std::string m_pay;

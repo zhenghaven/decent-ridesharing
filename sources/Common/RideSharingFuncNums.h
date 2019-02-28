@@ -56,5 +56,11 @@ namespace RideShare
 			constexpr NumType k_tripStart    = 3;
 			constexpr NumType k_tripEnd      = 4;
 		}
+
+		namespace Payment
+		{
+			typedef uint8_t NumType;
+			constexpr NumType k_procPayment = 0;
+		}
 	}
 }

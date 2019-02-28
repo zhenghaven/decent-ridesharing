@@ -4,7 +4,8 @@ cmake_minimum_required(VERSION 3.11)
 #   Options for Decent Ride Sharing Project
 #==========================================================
 
-set(Enc_Proj_Name_List PassengerMgm TripPlaner DriverMgm TripMatcher Billing)
+set(Enc_Proj_Name_List PassengerMgm TripPlaner DriverMgm TripMatcher Billing Payment)
+set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 
 set(HUNTER_BOOST_RUNTIME_STATIC ON CACHE BOOL "Switch for using boost runtime static linking." FORCE)
 
@@ -297,6 +298,7 @@ foreach(Proj_Name IN ITEMS ${Enc_Proj_Name_List})
 	)
 
 	add_custom_target(${Proj_Name}_EDL DEPENDS ${EDL_T_SRC_OUTPUT} ${EDL_U_SRC_OUTPUT})
+	set_target_properties(${Proj_Name}_EDL PROPERTIES FOLDER "${Proj_Name}")
 
 	###########################################################
 	### Enclave
@@ -312,6 +314,7 @@ foreach(Proj_Name IN ITEMS ${Enc_Proj_Name_List})
 	target_compile_options(${Proj_Name}_Enclave PRIVATE ${INTEL_SGX_SDK_C_FLAGS} $<$<COMPILE_LANGUAGE:CXX>:${INTEL_SGX_SDK_CXX_FLAGS} ${COMMON_ENCLAVE_CXX_OPTIONS}>)
 	#linker flags:
 	set_target_properties(${Proj_Name}_Enclave PROPERTIES LINK_FLAGS "${ENCLAVE_LINKER_OPTIONS} ${INTEL_SGX_SDK_LINKER_FLAGS_T}")
+	set_target_properties(${Proj_Name}_Enclave PROPERTIES FOLDER "${Proj_Name}")
 
 	add_custom_command(TARGET ${Proj_Name}_Enclave
 		POST_BUILD
@@ -354,6 +357,7 @@ foreach(Proj_Name IN ITEMS ${Enc_Proj_Name_List})
 	set_target_properties(${Proj_Name}_App PROPERTIES LINK_FLAGS_DEBUG "${APP_DEBUG_LINKER_OPTIONS}")
 	set_target_properties(${Proj_Name}_App PROPERTIES LINK_FLAGS_DEBUGSIMULATION "${APP_DEBUG_LINKER_OPTIONS}")
 	set_target_properties(${Proj_Name}_App PROPERTIES LINK_FLAGS_RELEASE "${APP_RELEASE_LINKER_OPTIONS}")
+	set_target_properties(${Proj_Name}_App PROPERTIES FOLDER "${Proj_Name}")
 
 	target_link_libraries(${Proj_Name}_App 
 		${COMMON_STANDARD_LIBRARIES} 
@@ -372,13 +376,14 @@ foreach(Proj_Name IN ITEMS ${Enc_Proj_Name_List})
 	
 endforeach()
 
+
+#==========================================================
+#   Client Apps
+#==========================================================
+
 set(Nor_Proj_Name_List Passenger Driver)
 
 foreach(Proj_Name IN ITEMS ${Nor_Proj_Name_List})
-
-	###########################################################
-	### App
-	###########################################################
 
 	add_executable(${Proj_Name} ${SOURCES_Common} ${SOURCES_Common_App} ${SOURCES_${Proj_Name}})
 	#includes:
@@ -389,6 +394,7 @@ foreach(Proj_Name IN ITEMS ${Nor_Proj_Name_List})
 	set_target_properties(${Proj_Name} PROPERTIES LINK_FLAGS_DEBUG "${APP_DEBUG_LINKER_OPTIONS}")
 	set_target_properties(${Proj_Name} PROPERTIES LINK_FLAGS_DEBUGSIMULATION "${APP_DEBUG_LINKER_OPTIONS}")
 	set_target_properties(${Proj_Name} PROPERTIES LINK_FLAGS_RELEASE "${APP_RELEASE_LINKER_OPTIONS}")
+	set_target_properties(${Proj_Name} PROPERTIES FOLDER "Client")
 
 	target_link_libraries(${Proj_Name} 
 		${COMMON_STANDARD_LIBRARIES} 

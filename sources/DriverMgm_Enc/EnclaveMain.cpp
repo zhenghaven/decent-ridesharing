@@ -1,5 +1,3 @@
-//#include "Enclave_t.h"
-
 #include <mutex>
 #include <memory>
 
@@ -253,19 +251,19 @@ static void RequestPaymentInfo(void* const connection, Decent::Net::TlsCommLayer
 {
 	LOGI("Processing payment info request...");
 
-	std::string msgBuf;
-	if (!tls.ReceiveMsg(connection, msgBuf))
+	std::string driId;
+	if (!tls.ReceiveMsg(connection, driId))
 	{
 		return;
 	}
 
-	LOGI("Looking for payment info of driver: %s", msgBuf.c_str());
+	LOGI("Looking for payment info of driver:\n %s", driId.c_str());
 
 	std::string driPayInfo;
 	std::string selfPayInfo = gs_selfPaymentInfo;
 	{
 		std::unique_lock<std::mutex> profilesLock(gs_profileMapMutex);
-		auto it = gsk_profileMap.find(msgBuf);
+		auto it = gsk_profileMap.find(driId);
 		if (it == gsk_profileMap.cend())
 		{
 			return;

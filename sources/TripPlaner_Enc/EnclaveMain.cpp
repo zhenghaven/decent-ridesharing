@@ -131,13 +131,9 @@ static void ProcessGetQuote(void* const connection, Decent::Net::TlsCommLayer& t
 		return;
 	}
 
-	ClientX509 peerCert = tls.GetPeerCertPem();
-	if (!peerCert)
-	{
-		return;
-	}
-
-	if (!SendQueryLog(peerCert.GetEcPublicKey().ToPubPemString(), *getQuote))
+	const std::string pasId = tls.GetPublicKeyPem();
+	if (pasId.size() == 0 ||
+		!SendQueryLog(pasId, *getQuote))
 	{
 		return;
 	}
@@ -158,7 +154,7 @@ static void ProcessGetQuote(void* const connection, Decent::Net::TlsCommLayer& t
 		return;
 	}
 
-	ComMsg::Quote quote(*getQuote, pathMsg, *price, "Trip_Planner_Part_1_Payment");
+	ComMsg::Quote quote(*getQuote, pathMsg, *price, "Trip_Planner_Part_1_Payment", pasId);
 	LOGI("Constructing Signed Quote...");
 	ComMsg::SignedQuote signedQuote = ComMsg::SignedQuote::SignQuote(quote, gs_state);
 

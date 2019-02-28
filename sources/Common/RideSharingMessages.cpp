@@ -126,11 +126,6 @@ std::string Internal::ParseObj<std::string>(const JsonValue & json, const char *
 	throw MessageParseException();
 }
 
-std::string Internal::ParseOpPayment(const JsonValue& json, const char* label)
-{
-	return Internal::ParseObj<std::string>(json, label);
-}
-
 std::string JsonMsg::ToString() const
 {
 	JsonDoc doc;
@@ -239,6 +234,7 @@ constexpr char const Quote::sk_labelGetQuote[];
 constexpr char const Quote::sk_labelPath[];
 constexpr char const Quote::sk_labelPrice[];
 constexpr char const Quote::sk_labelOpPayment[];
+constexpr char const Quote::sk_labelPasId[];
 
 Quote Quote::Parse(const JsonValue & json, const char * label)
 {
@@ -251,10 +247,11 @@ JsonValue& Quote::ToJson(JsonDoc& doc) const
 	JsonValue path = std::move(m_path.ToJson(doc));
 	JsonValue price = std::move(m_price.ToJson(doc));
 
-	Tools::JsonSetVal(doc, Quote::sk_labelGetQuote, getQuote);
-	Tools::JsonSetVal(doc, Quote::sk_labelPath, path);
-	Tools::JsonSetVal(doc, Quote::sk_labelPrice, price);
-	Tools::JsonSetVal(doc, Quote::sk_labelOpPayment, m_opPayment);
+	Tools::JsonSetVal(doc, sk_labelGetQuote, getQuote);
+	Tools::JsonSetVal(doc, sk_labelPath, path);
+	Tools::JsonSetVal(doc, sk_labelPrice, price);
+	Tools::JsonSetVal(doc, sk_labelOpPayment, m_opPayment);
+	Tools::JsonSetVal(doc, sk_labelPasId, m_pasId);
 
 	return doc;
 }
@@ -522,6 +519,7 @@ JsonValue & DriQueryLog::ToJson(JsonDoc & doc) const
 
 constexpr char const FinalBill::sk_labelQuote[];
 constexpr char const FinalBill::sk_labelOpPayment[];
+constexpr char const FinalBill::sk_labelDriId[];
 
 JsonValue & FinalBill::ToJson(JsonDoc & doc) const
 {
@@ -529,6 +527,7 @@ JsonValue & FinalBill::ToJson(JsonDoc & doc) const
 
 	Tools::JsonSetVal(doc, sk_labelQuote, quote);
 	Tools::JsonSetVal(doc, sk_labelOpPayment, m_opPay);
+	Tools::JsonSetVal(doc, sk_labelDriId, m_driId);
 
 	return doc;
 }

@@ -22,7 +22,7 @@
 #include "../Common_App/ConnectionManager.h"
 #include "../Common_App/RideSharingMessages.h"
 
-#include "DriverMgmApp.h"
+#include "PaymentApp.h"
 
 using namespace RideShare;
 using namespace RideShare::Tools;
@@ -40,9 +40,9 @@ using namespace Decent::Ra::Message;
  */
 int main(int argc, char ** argv)
 {
-	std::cout << "================ Driver Management ================" << std::endl;
+	std::cout << "================ Payment ================" << std::endl;
 
-	TCLAP::CmdLine cmd("Driver Management", ' ', "ver", true);
+	TCLAP::CmdLine cmd("Payment", ' ', "ver", true);
 
 	TCLAP::ValueArg<std::string> configPathArg("c", "config", "Path to the configuration file.", false, "Config.json", "String");
 	TCLAP::ValueArg<std::string> wlKeyArg("w", "wl-key", "Key for the loaded whitelist.", false, "WhiteListKey", "String");
@@ -63,7 +63,8 @@ int main(int argc, char ** argv)
 	ConnectionManager::SetConfigManager(configManager);
 
 	const ConfigItem& decentServerItem = configManager.GetItem(Ra::WhiteList::sk_nameDecentServer);
-	const ConfigItem& driMgmItem = configManager.GetItem(AppNames::sk_driverMgm);
+	const ConfigItem& paymentItem = configManager.GetItem(AppNames::sk_payment);
+
 
 	uint32_t serverIp = boost::asio::ip::address_v4::from_string(decentServerItem.GetAddr()).to_uint();
 	std::unique_ptr<Net::Connection> serverCon;
@@ -76,19 +77,19 @@ int main(int argc, char ** argv)
 
 	serverCon = std::make_unique<Net::TCPConnection>(serverIp, decentServerItem.GetPort());
 
-	std::shared_ptr<DriverMgm> enclave(
-		std::make_shared<DriverMgm>(
+	std::shared_ptr<PaymentApp> enclave(
+		std::make_shared<PaymentApp>(
 			ENCLAVE_FILENAME, KnownFolderType::LocalAppDataEnclave, TOKEN_FILENAME, wlKeyArg.getValue(), *serverCon));
 
 
 	Net::SmartServer smartServer;
 
-	uint32_t driMgmIp = boost::asio::ip::address_v4::from_string(driMgmItem.GetAddr()).to_uint();
-	std::unique_ptr<Net::Server> server(std::make_unique<Net::TCPServer>(driMgmIp, driMgmItem.GetPort()));
-
+	uint32_t paymentIp = boost::asio::ip::address_v4::from_string(paymentItem.GetAddr()).to_uint();
+	std::unique_ptr<Net::Server> server(std::make_unique<Net::TCPServer>(paymentIp, paymentItem.GetPort()));
+	
 	smartServer.AddServer(server, enclave);
 	smartServer.RunUtilUserTerminate();
-
+	
 
 	printf("Exit ...\n");
 	return 0;

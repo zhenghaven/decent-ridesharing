@@ -25,6 +25,8 @@
 #include "../Common/RideSharingMessages.h"
 #include "../Common/UnexpectedErrorException.h"
 
+#include "Enclave_t.h"
+
 using namespace RideShare;
 using namespace Decent;
 using namespace Decent::Ra;
@@ -41,14 +43,17 @@ namespace
 		ComMsg::PasContact m_contact;
 		ComMsg::Quote m_quote;
 		std::string m_tripId;
+		std::unique_ptr<ComMsg::DriContact> m_driContact;
+		std::string m_driId;
+
 		std::mutex m_mutex;
 		std::condition_variable m_cond;
-		std::unique_ptr<ComMsg::DriContact> m_driContact;
 
 		ConfirmedQuoteItem(const ComMsg::PasContact& contact, const ComMsg::Quote& quote, const std::string& tripId) :
 			m_contact(contact),
 			m_quote(quote),
-			m_tripId(tripId)
+			m_tripId(tripId),
+			m_driId()
 		{}
 
 		ConfirmedQuoteItem(const ConfirmedQuoteItem& rhs) = delete;
@@ -60,12 +65,21 @@ namespace
 		ComMsg::Quote m_quote;
 		bool m_isEndByPas;
 		bool m_isEndByDri;
+		std::string m_driId;
 		std::mutex m_mutex;
 
-		MatchedItem(ComMsg::Quote&& quote) :
+		MatchedItem(ComMsg::Quote&& quote, const std::string& driId) :
 			m_quote(std::forward<ComMsg::Quote>(quote)),
 			m_isEndByPas(false),
-			m_isEndByDri(false)
+			m_isEndByDri(false),
+			m_driId(driId)
+		{}
+
+		MatchedItem(ComMsg::Quote&& quote, std::string&& driId) :
+			m_quote(std::forward<ComMsg::Quote>(quote)),
+			m_isEndByPas(false),
+			m_isEndByDri(false),
+			m_driId(std::forward<std::string>(driId))
 		{}
 	};
 
@@ -105,6 +119,26 @@ namespace
 			return nullptr;
 		}
 	}
+
+	typedef sgx_status_t(*CntBuilderType)(void**);
+
+	struct CntWraper
+	{
+		CntWraper(CntBuilderType cntBuilder) :
+			m_ptr(nullptr)
+		{
+			if ((*cntBuilder)(&m_ptr) != SGX_SUCCESS)
+			{
+				m_ptr = nullptr;
+			}
+		}
+
+		~CntWraper()
+		{
+			ocall_ride_share_cnt_mgr_close_cnt(m_ptr);
+		}
+		void* m_ptr;
+	};
 }
 
 static std::unique_ptr<ComMsg::SignedQuote> ParseSignedQuote(const std::string& msg, Decent::Ra::States& state)
@@ -216,9 +250,16 @@ static bool VerifyContactHash(const std::string& certPem, const Decent::General2
 	return cert.GetAppId() == cppcodec::base64_rfc4648::encode(contactHash);
 }
 
+static inline std::string GetClientIdFromTls(const Decent::Net::TlsCommLayer& tls)
+{
+	return tls.GetPublicKeyPem();
+}
+
 static void ProcessPasConfirmQuoteReq(void* const connection, Decent::Net::TlsCommLayer& tls)
 {
 	LOGI("Processing passenger confirm request...");
+
+	const std::string pasId = GetClientIdFromTls(tls);
 
 	std::string msgBuf;
 
@@ -228,7 +269,8 @@ static void ProcessPasConfirmQuoteReq(void* const connection, Decent::Net::TlsCo
 	if (!tls.ReceiveMsg(connection, msgBuf) ||
 		!(confirmQuote = ParseMsg<ComMsg::ConfirmQuote>(msgBuf)) ||
 		!(signedQuote = ParseSignedQuote(confirmQuote->GetSignQuote(), gs_state)) ||
-		!(quote = ParseMsg<ComMsg::Quote>(signedQuote->GetQuote())) )
+		!(quote = ParseMsg<ComMsg::Quote>(signedQuote->GetQuote())) ||
+		quote->GetPasId() != pasId )
 	{
 		return;
 	}
@@ -266,7 +308,7 @@ static void ProcessPasConfirmQuoteReq(void* const connection, Decent::Net::TlsCo
 
 	item = RemoveConfirmedQuote(itemPtr);
 
-	std::shared_ptr<MatchedItem> matched = std::make_shared<MatchedItem>(std::move(item->m_quote));
+	std::shared_ptr<MatchedItem> matched = std::make_shared<MatchedItem>(std::move(item->m_quote), std::move(item->m_driId));
 
 	AddMatchedItem(item->m_tripId, matched);
 
@@ -298,15 +340,40 @@ static void TripStart(void* const connection, Decent::Net::TlsCommLayer& tls, co
 			item = it->second;
 		}
 	}
-
 	LOGI("The trip is %s. The ID is %s.", item ? "found" : "not found", tripId.c_str());
+
+	if (!item ||
+		GetClientIdFromTls(tls) != (isPassenger ? item->m_quote.GetPasId() : item->m_driId))
+	{
+		LOGI("Requester is not the %s of this trip!", isPassenger ? "passenger" : "driver");
+		return;
+	}
 }
 
 static void ProcessPayment(const std::shared_ptr<MatchedItem>& item)
 {
-	ComMsg::FinalBill bill(std::move(item->m_quote), std::string(gs_selfPaymentInfo));
+	using namespace EncFunc::Payment;
+
+	ComMsg::FinalBill bill(std::move(item->m_quote), std::string(gs_selfPaymentInfo), std::move(item->m_driId));
 
 	LOGI("Sending final bill to payment services.");
+
+	LOGI("Connecting to a Payment Services...");
+
+	CntWraper cnt(&ocall_ride_share_cnt_mgr_get_payment);
+	if (!cnt.m_ptr)
+	{
+		return;
+	}
+
+	std::shared_ptr<Decent::Ra::TlsConfig> tlsCfg = std::make_shared<Decent::Ra::TlsConfig>(AppNames::sk_payment, gs_state, false);
+	Decent::Net::TlsCommLayer tls(cnt.m_ptr, tlsCfg, true);
+
+	if (!tls.SendMsg(cnt.m_ptr, EncFunc::GetMsgString(k_procPayment)) ||
+		!tls.SendMsg(cnt.m_ptr, bill.ToString()) )
+	{
+		return;
+	}
 }
 
 static void TripEnd(void* const connection, Decent::Net::TlsCommLayer& tls, const bool isPassenger)
@@ -333,8 +400,10 @@ static void TripEnd(void* const connection, Decent::Net::TlsCommLayer& tls, cons
 
 	LOGI("The trip is %s. The ID is %s.", item ? "found" : "not found", tripId.c_str());
 
-	if (!item)
+	if (!item ||
+		GetClientIdFromTls(tls) != (isPassenger ? item->m_quote.GetPasId() : item->m_driId))
 	{
+		LOGI("Requester is not the %s of this trip!", isPassenger ? "passenger" : "driver");
 		return;
 	}
 
@@ -366,7 +435,7 @@ static void TripEnd(void* const connection, Decent::Net::TlsCommLayer& tls, cons
 			}
 		}
 		
-		ProcessPayment(item); //Caution: m_quote in item become invalid after this call!
+		ProcessPayment(item); //Caution: m_quote & m_driId in item become invalid after this call!
 	}
 }
 
@@ -517,6 +586,8 @@ static void DriverConfirmMatchReq(void* const connection, Decent::Net::TlsCommLa
 {
 	LOGI("Process driver confirm match request...");
 
+	const std::string driId = GetClientIdFromTls(tls);
+
 	std::string msgBuf;
 
 	std::unique_ptr<ComMsg::DriSelection> selection;
@@ -554,6 +625,7 @@ static void DriverConfirmMatchReq(void* const connection, Decent::Net::TlsCommLa
 		std::unique_lock<std::mutex> itemLock(item->m_mutex);
 
 		item->m_driContact = Tools::make_unique<ComMsg::DriContact>(std::move(selection->GetContact()));
+		item->m_driId = driId;
 
 		pasContact = Tools::make_unique<ComMsg::PasContact>(item->m_contact);
 
