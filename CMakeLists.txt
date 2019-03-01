@@ -278,6 +278,7 @@ foreach(Proj_Name IN ITEMS ${Enc_Proj_Name_List})
 	add_custom_command(OUTPUT ${EDL_T_SRC_OUTPUT}
 		COMMAND "${INTEL_SGX_EDGER_PATH}"  
 		--trusted "${SOURCEDIR_${Proj_Name}_Enc}/Enclave.edl" 
+		--search-path "${SOURCEDIR_Common_Enc}" 
 		--search-path "${SOURCEDIR_${Proj_Name}_Enc}" 
 		--search-path "${DECENT_API_EDL_DIR}" 
 		--search-path "${INTEL_SGX_SDK_INCLUDE_DIR}"
@@ -289,6 +290,7 @@ foreach(Proj_Name IN ITEMS ${Enc_Proj_Name_List})
 	add_custom_command(OUTPUT ${EDL_U_SRC_OUTPUT}
 		COMMAND "${INTEL_SGX_EDGER_PATH}"  
 		--untrusted "${SOURCEDIR_${Proj_Name}_Enc}/Enclave.edl" 
+		--search-path "${SOURCEDIR_Common_Enc}" 
 		--search-path "${SOURCEDIR_${Proj_Name}_Enc}" 
 		--search-path "${DECENT_API_EDL_DIR}" 
 		--search-path "${INTEL_SGX_SDK_INCLUDE_DIR}"
@@ -389,7 +391,7 @@ foreach(Proj_Name IN ITEMS ${Nor_Proj_Name_List})
 	#includes:
 	target_include_directories(${Proj_Name} PRIVATE ${TCLAP_INCLUDE_DIR})
 	#defines:
-	target_compile_definitions(${Proj_Name} PRIVATE ${COMMON_APP_DEFINES})
+	target_compile_definitions(${Proj_Name} PRIVATE ${COMMON_APP_DEFINES} DECENT_PURE_CLIENT)
 	#linker flags:
 	set_target_properties(${Proj_Name} PROPERTIES LINK_FLAGS_DEBUG "${APP_DEBUG_LINKER_OPTIONS}")
 	set_target_properties(${Proj_Name} PROPERTIES LINK_FLAGS_DEBUGSIMULATION "${APP_DEBUG_LINKER_OPTIONS}")

@@ -13,6 +13,9 @@
 #include "../Common/TlsConfig.h"
 #include "../Common/AppNames.h"
 
+#include "../Common_Enc/OperatorPayment.h"
+#include "../Common_Enc/Connector.h"
+
 #include "Enclave_t.h"
 
 using namespace RideShare;
@@ -25,7 +28,6 @@ namespace
 	template<typename MsgType>
 	static std::unique_ptr<MsgType> ParseMsg(const std::string& msgStr)
 	{
-		//LOGW("Parsing Msg (size = %llu): \n%s\n", msgStr.size(), msgStr.c_str());
 		try
 		{
 			rapidjson::Document json;
@@ -38,26 +40,6 @@ namespace
 			return nullptr;
 		}
 	}
-
-	typedef sgx_status_t(*CntBuilderType)(void**);
-
-	struct CntWraper
-	{
-		CntWraper(CntBuilderType cntBuilder) :
-			m_ptr(nullptr)
-		{
-			if ((*cntBuilder)(&m_ptr) != SGX_SUCCESS)
-			{
-				m_ptr = nullptr;
-			}
-		}
-
-		~CntWraper()
-		{
-			ocall_ride_share_cnt_mgr_close_cnt(m_ptr);
-		}
-		void* m_ptr;
-	};
 }
 
 static std::unique_ptr<ComMsg::RequestedPayment> GetPassengerPayment(const std::string& pasId)
@@ -65,7 +47,7 @@ static std::unique_ptr<ComMsg::RequestedPayment> GetPassengerPayment(const std::
 	using namespace EncFunc::PassengerMgm;
 	LOGI("Connecting to a Passenger Management...");
 
-	CntWraper cnt(&ocall_ride_share_cnt_mgr_get_pas_mgm);
+	Connector cnt(&ocall_ride_share_cnt_mgr_get_pas_mgm);
 	if (!cnt.m_ptr)
 	{
 		return nullptr;
@@ -90,7 +72,7 @@ static std::unique_ptr<ComMsg::RequestedPayment> GetDriverPayment(const std::str
 	using namespace EncFunc::DriverMgm;
 	LOGI("Connecting to a Driver Management...");
 
-	CntWraper cnt(&ocall_ride_share_cnt_mgr_get_dri_mgm);
+	Connector cnt(&ocall_ride_share_cnt_mgr_get_dri_mgm);
 	if (!cnt.m_ptr)
 	{
 		return nullptr;
@@ -132,17 +114,23 @@ static void ProcessPayment(void* const connection, Decent::Net::TlsCommLayer& tl
 		return;
 	}
 
-	LOGI("Pay from %s, to:", pasPayment->GetPayemnt().c_str());
-	LOGI("\t Billing Services     Operator: %s", bill->GetQuote().GetPrice().GetOpPayment().c_str());
-	LOGI("\t Trip Planner         Operator: %s", bill->GetQuote().GetOpPayment().c_str());
-	LOGI("\t Trip Matcher         Operator: %s", bill->GetOpPayment().c_str());
-	LOGI("\t Passenger Management Operator: %s", pasPayment->GetOpPayment().c_str());
-	LOGI("\t Driver Management    Operator: %s", driPayment->GetOpPayment().c_str());
-	LOGI("\t Payment Services     Operator: %s", "Payment Services Payment");
+	PRINT_I("Pay from %s, to:", pasPayment->GetPayemnt().c_str());
+	PRINT_I("\t Driver                       : %s", driPayment->GetPayemnt().c_str());
+	PRINT_I("\t Billing Services     Operator: %s", bill->GetQuote().GetPrice().GetOpPayment().c_str());
+	PRINT_I("\t Trip Planner         Operator: %s", bill->GetQuote().GetOpPayment().c_str());
+	PRINT_I("\t Trip Matcher         Operator: %s", bill->GetOpPayment().c_str());
+	PRINT_I("\t Passenger Management Operator: %s", pasPayment->GetOpPayment().c_str());
+	PRINT_I("\t Driver Management    Operator: %s", driPayment->GetOpPayment().c_str());
+	PRINT_I("\t Payment Services     Operator: %s", OperatorPayment::GetPaymentInfo().c_str());
 }
 
 extern "C" int ecall_ride_share_pay_from_trip_matcher(void* const connection)
 {
+	if (!OperatorPayment::IsPaymentInfoValid())
+	{
+		return false;
+	}
+
 	using namespace EncFunc::Payment;
 	LOGI("Processing message from trip matcher...");
 
@@ -150,14 +138,10 @@ extern "C" int ecall_ride_share_pay_from_trip_matcher(void* const connection)
 	Decent::Net::TlsCommLayer tmTls(connection, tmTlsCfg, true);
 
 	std::string msgBuf;
-	if (!tmTls.ReceiveMsg(connection, msgBuf) ||
-		msgBuf.size() != sizeof(NumType))
+	if (!tmTls.ReceiveMsg(connection, msgBuf) )
 	{
-		LOGW("Recv size: %llu", msgBuf.size());
 		return false;
 	}
-
-	LOGI("TLS Handshake Successful!");
 
 	const NumType funcNum = EncFunc::GetNum<NumType>(msgBuf);
 

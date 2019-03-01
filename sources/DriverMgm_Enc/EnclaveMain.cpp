@@ -19,14 +19,14 @@
 #include "../Common/RideSharingFuncNums.h"
 #include "../Common/RideSharingMessages.h"
 
+#include "../Common_Enc/OperatorPayment.h"
+
 using namespace RideShare;
 using namespace Decent::Ra;
 
 namespace
 {
 	static States& gs_state = States::Get();
-	
-	std::string gs_selfPaymentInfo = "Driver Mgm Payment Info Test";
 	
 	struct DriProfileItem
 	{
@@ -59,7 +59,6 @@ namespace
 	template<typename MsgType>
 	static std::unique_ptr<MsgType> ParseMsg(const std::string& msgStr)
 	{
-		//LOGW("Parsing Msg (size = %llu): \n%s\n", msgStr.size(), msgStr.c_str());
 		try
 		{
 			rapidjson::Document json;
@@ -140,7 +139,7 @@ static void ProcessDriRegisterReq(void* const connection, Decent::Net::TlsCommLa
 	}
 
 	const ComMsg::DriContact& contact = driRegInfo->GetContact();
-	ClientX509 clientCert(certReq.GetEcPublicKey(), *cert, *prvKey, "Decent_RideShare_Driver" + contact.GetName(),
+	ClientX509 clientCert(certReq.GetEcPublicKey(), *cert, *prvKey, "Decent_RideShare_Driver_" + contact.GetName(),
 		cppcodec::base64_rfc4648::encode(contact.CalcHash()));
 
 	{
@@ -158,6 +157,11 @@ static void ProcessDriRegisterReq(void* const connection, Decent::Net::TlsCommLa
 
 extern "C" int ecall_ride_share_dm_from_dri(void* const connection)
 {
+	if (!OperatorPayment::IsPaymentInfoValid())
+	{
+		return false;
+	}
+
 	using namespace EncFunc::DriverMgm;
 
 	LOGI("Processing message from driver...");
@@ -166,14 +170,10 @@ extern "C" int ecall_ride_share_dm_from_dri(void* const connection)
 	Decent::Net::TlsCommLayer driTls(connection, driTlsCfg, false);
 
 	std::string msgBuf;
-	if (!driTls.ReceiveMsg(connection, msgBuf) ||
-		msgBuf.size() != sizeof(NumType))
+	if (!driTls.ReceiveMsg(connection, msgBuf) )
 	{
-		LOGI("Recv size: %llu", msgBuf.size());
 		return false;
 	}
-
-	LOGI("TLS Handshake Successful!");
 
 	const NumType funcNum = EncFunc::GetNum<EncFunc::PassengerMgm::NumType>(msgBuf);
 
@@ -206,14 +206,19 @@ static void LogQuery(void* const connection, Decent::Net::TlsCommLayer& tls)
 
 	const ComMsg::Point2D<double>& loc = queryLog->GetLoc();
 
-	LOGI("Logged Driver Query:");
-	LOGI("Driver ID:\n%s", queryLog->GetDriverId().c_str());
-	LOGI("Location: (%f, %f)", loc.GetX(), loc.GetY());
+	PRINT_I("Logged Driver Query:");
+	PRINT_I("Driver ID:\n%s", queryLog->GetDriverId().c_str());
+	PRINT_I("Location: (%f, %f)", loc.GetX(), loc.GetY());
 
 }
 
 extern "C" int ecall_ride_share_dm_from_trip_matcher(void* const connection)
 {
+	if (!OperatorPayment::IsPaymentInfoValid())
+	{
+		return false;
+	}
+
 	using namespace EncFunc::DriverMgm;
 
 	LOGI("Processing message from Trip Matcher...");
@@ -222,14 +227,10 @@ extern "C" int ecall_ride_share_dm_from_trip_matcher(void* const connection)
 	Decent::Net::TlsCommLayer tmTls(connection, tmTlsCfg, true);
 
 	std::string msgBuf;
-	if (!tmTls.ReceiveMsg(connection, msgBuf) ||
-		msgBuf.size() != sizeof(NumType))
+	if (!tmTls.ReceiveMsg(connection, msgBuf) )
 	{
-		LOGW("Recv size: %llu", msgBuf.size());
 		return false;
 	}
-
-	LOGI("TLS Handshake Successful!");
 
 	const NumType funcNum = EncFunc::GetNum<NumType>(msgBuf);
 
@@ -260,7 +261,7 @@ static void RequestPaymentInfo(void* const connection, Decent::Net::TlsCommLayer
 	LOGI("Looking for payment info of driver:\n %s", driId.c_str());
 
 	std::string driPayInfo;
-	std::string selfPayInfo = gs_selfPaymentInfo;
+	std::string selfPayInfo = OperatorPayment::GetPaymentInfo();
 	{
 		std::unique_lock<std::mutex> profilesLock(gs_profileMapMutex);
 		auto it = gsk_profileMap.find(driId);
@@ -271,7 +272,7 @@ static void RequestPaymentInfo(void* const connection, Decent::Net::TlsCommLayer
 		driPayInfo = it->second.m_pay;
 	}
 
-	LOGI("Driver profile is found. Sending payment info...");
+	LOGI("Driver profile is found. Replying payment info...");
 
 	ComMsg::RequestedPayment payInfo(std::move(driPayInfo), std::move(selfPayInfo));
 
@@ -280,6 +281,11 @@ static void RequestPaymentInfo(void* const connection, Decent::Net::TlsCommLayer
 
 extern "C" int ecall_ride_share_dm_from_payment(void* const connection)
 {
+	if (!OperatorPayment::IsPaymentInfoValid())
+	{
+		return false;
+	}
+
 	using namespace EncFunc::DriverMgm;
 
 	LOGI("Processing message from payment services...");
@@ -288,14 +294,10 @@ extern "C" int ecall_ride_share_dm_from_payment(void* const connection)
 	Decent::Net::TlsCommLayer payTls(connection, payTlsCfg, true);
 
 	std::string msgBuf;
-	if (!payTls.ReceiveMsg(connection, msgBuf) ||
-		msgBuf.size() != sizeof(NumType))
+	if (!payTls.ReceiveMsg(connection, msgBuf)  )
 	{
-		LOGW("Recv size: %llu", msgBuf.size());
 		return false;
 	}
-
-	LOGI("TLS Handshake Successful!");
 
 	const NumType funcNum = EncFunc::GetNum<NumType>(msgBuf);
 

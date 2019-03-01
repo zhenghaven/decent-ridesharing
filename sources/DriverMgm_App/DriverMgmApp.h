@@ -1,22 +1,23 @@
 #pragma once
 
-#include <DecentApi/DecentAppApp/DecentApp.h>
+#include "../Common_App/RideShareApp.h"
 
-class DriverMgm : public Decent::RaSgx::DecentApp
+namespace RideShare
 {
-public:
-	using Decent::RaSgx::DecentApp::DecentApp;
+	class DriverMgm : public RideShareApp
+	{
+	public:
+		using RideShareApp::RideShareApp;
 
-	virtual ~DriverMgm() {}
+		virtual ~DriverMgm() {}
 
-	virtual bool ProcessMsgFromDriver(Decent::Net::Connection& connection);
+		virtual bool ProcessMsgFromDriver(Decent::Net::Connection& connection);
 
-	virtual bool ProcessMsgFromTripMatcher(Decent::Net::Connection& connection);
+		virtual bool ProcessMsgFromTripMatcher(Decent::Net::Connection& connection);
 
-	virtual bool ProcessMsgFromPayment(Decent::Net::Connection& connection);
+		virtual bool ProcessMsgFromPayment(Decent::Net::Connection& connection);
 
-	virtual bool ProcessSmartMessage(const std::string& category, const Json::Value& jsonMsg, Decent::Net::Connection& connection) override;
+		virtual bool ProcessSmartMessage(const std::string& category, const Json::Value& jsonMsg, Decent::Net::Connection& connection) override;
 
-private:
-
-};
+	};
+}

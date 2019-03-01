@@ -90,7 +90,7 @@ int main(int argc, char ** argv)
 	if (!GetConfigurationJsonString(configPathArg.getValue(), configJsonStr))
 	{
 		std::cout << "Failed to load configuration file." << std::endl;
-		return 1;
+		return -1;
 	}
 	ConfigManager configManager(configJsonStr);
 	ConnectionManager::SetConfigManager(configManager);
@@ -107,7 +107,7 @@ int main(int argc, char ** argv)
 		);
 	if (!cert || !*cert)
 	{
-		return 1;
+		return -1;
 	}
 	state.GetCertContainer().SetCert(cert);
 
@@ -119,7 +119,7 @@ int main(int argc, char ** argv)
 	appCon = ConnectionManager::GetConnection2PassengerMgm(FromPassenger());
 	if (!RegesterCert(*appCon, contact))
 	{
-		return 1;
+		return -1;
 	}
 
 	Pause("get quote");
@@ -127,7 +127,7 @@ int main(int argc, char ** argv)
 	appCon = ConnectionManager::GetConnection2TripPlanner(FromPassenger());
 	if (!SendQuery(*appCon, signedQuoteStr))
 	{
-		return 1;
+		return -1;
 	}
 
 	Pause("confirm quote");
@@ -135,24 +135,24 @@ int main(int argc, char ** argv)
 	appCon = ConnectionManager::GetConnection2TripMatcher(FromPassenger());
 	if (!ConfirmQuote(*appCon, contact, signedQuoteStr, tripId))
 	{
-		return 1;
+		return -1;
 	}
 
 	Pause("start trip");
 	appCon = ConnectionManager::GetConnection2TripMatcher(FromPassenger());
 	if (!TripStartOrEnd(*appCon, tripId, true))
 	{
-		return 1;
+		return -1;
 	}
 
 	Pause("end trip");
 	appCon = ConnectionManager::GetConnection2TripMatcher(FromPassenger());
 	if (!TripStartOrEnd(*appCon, tripId, false))
 	{
-		return 1;
+		return -1;
 	}
 
-	LOGI("Exit.\n");
+	Pause("exit");
 	return 0;
 }
 
@@ -163,7 +163,7 @@ bool RegesterCert(Net::Connection& con, const ComMsg::PasContact& contact)
 
 	Ra::X509Req certReq(*state.GetKeyContainer().GetSignKeyPair(), "Passenger");
 
-	ComMsg::PasReg regMsg(contact, "Passneger Payment Info XXXXX", certReq.ToPemString());
+	ComMsg::PasReg regMsg(contact, "-Passneger Pay Info-", certReq.ToPemString());
 
 	std::shared_ptr<Decent::Ra::TlsConfig> pasTlsCfg = std::make_shared<Decent::Ra::TlsConfig>(AppNames::sk_passengerMgm, state);
 	Decent::Net::TlsCommLayer pasTls(&con, pasTlsCfg, true);
@@ -229,7 +229,7 @@ bool SendQuery(Net::Connection& con, std::string& signedQuoteStr)
 		return false;
 	}
 
-	LOGI("Received quote with price: %f.", quote->GetPrice().GetPrice());
+	PRINT_I("Received quote with price: %f.", quote->GetPrice().GetPrice());
 
 	return true;
 }
@@ -254,9 +254,9 @@ bool ConfirmQuote(Net::Connection& con, const ComMsg::PasContact& contact, const
 		return false;
 	}
 
-	LOGI("Matched Driver:");
-	LOGI("\tName:  %s.", matchedResult->GetDriContact().GetName().c_str());
-	LOGI("\tPhone: %s.", matchedResult->GetDriContact().GetPhone().c_str());
+	PRINT_I("Matched Driver:");
+	PRINT_I("\tName:  %s.", matchedResult->GetDriContact().GetName().c_str());
+	PRINT_I("\tPhone: %s.", matchedResult->GetDriContact().GetPhone().c_str());
 
 	tripId = matchedResult->GetTripId();
 
@@ -278,7 +278,7 @@ bool TripStartOrEnd(Net::Connection& con, const std::string& tripId, const bool 
 		return false;
 	}
 
-	LOGI("Trip %s.", isStart ? "started" : "ended");
+	PRINT_I("Trip %s.", isStart ? "started" : "ended");
 
 	return true;
 }

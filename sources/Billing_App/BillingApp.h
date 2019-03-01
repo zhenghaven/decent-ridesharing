@@ -1,18 +1,19 @@
 #pragma once
 
-#include <DecentApi/DecentAppApp/DecentApp.h>
+#include "../Common_App/RideShareApp.h"
 
-class Billing : public Decent::RaSgx::DecentApp
+namespace RideShare
 {
-public:
-	using Decent::RaSgx::DecentApp::DecentApp;
+	class Billing : public RideShareApp
+	{
+	public:
+		using RideShareApp::RideShareApp;
 
-	virtual ~Billing() {}
+		virtual ~Billing() {}
 
-	virtual bool ProcessMsgFromTripPlanner(Decent::Net::Connection& connection);
+		virtual bool ProcessMsgFromTripPlanner(Decent::Net::Connection& connection);
 
-	virtual bool ProcessSmartMessage(const std::string& category, const Json::Value& jsonMsg, Decent::Net::Connection& connection) override;
+		virtual bool ProcessSmartMessage(const std::string& category, const Json::Value& jsonMsg, Decent::Net::Connection& connection) override;
 
-private:
-
-};
+	};
+}

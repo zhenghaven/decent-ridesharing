@@ -52,6 +52,13 @@ static std::unique_ptr<MsgType> ParseMsg(const std::string& msgStr)
 	}
 }
 
+static void Pause(const std::string& msg)
+{
+	std::cout << "Press enter to " << msg << "...";
+	std::string buf;
+	std::getline(std::cin, buf);
+}
+
 /**
 * \brief	Main entry-point for this application
 *
@@ -75,7 +82,7 @@ int main(int argc, char ** argv)
 	if (!GetConfigurationJsonString(configPathArg.getValue(), configJsonStr))
 	{
 		std::cout << "Failed to load configuration file." << std::endl;
-		return 1;
+		return -1;
 	}
 	ConfigManager configManager(configJsonStr);
 	ConnectionManager::SetConfigManager(configManager);
@@ -92,7 +99,7 @@ int main(int argc, char ** argv)
 		);
 	if (!cert || !*cert)
 	{
-		return 1;
+		return -1;
 	}
 	state.GetCertContainer().SetCert(cert);
 
@@ -100,41 +107,46 @@ int main(int argc, char ** argv)
 
 	std::unique_ptr<Net::Connection> appCon;
 
+	Pause("register");
 	appCon = ConnectionManager::GetConnection2DriverMgm(FromDriver());
 	if (!RegesterCert(*appCon, contact))
 	{
-		return 1;
+		return -1;
 	}
 
+	Pause("find closest passengers");
 	std::unique_ptr<ComMsg::BestMatches> matches;
 	appCon = ConnectionManager::GetConnection2TripMatcher(FromDriver());
 	if (!(matches = SendQuery(*appCon)) ||
 		matches->GetMatches().size() == 0)
 	{
-		return 1;
+		return -1;
 	}
 
+	Pause("pick first closest passenger");
 	appCon = ConnectionManager::GetConnection2TripMatcher(FromDriver());
 	const ComMsg::MatchItem& firstItem = matches->GetMatches()[0];
 	const std::string tripId = firstItem.GetTripId();
 	if (!ConfirmMatch(*appCon, contact, tripId))
 	{
-		return 1;
+		return -1;
 	}
 
+	Pause("start trip");
 	appCon = ConnectionManager::GetConnection2TripMatcher(FromDriver());
 	if (!TripStartOrEnd(*appCon, tripId, true))
 	{
-		return 1;
+		return -1;
 	}
 
+	Pause("end trip");
 	appCon = ConnectionManager::GetConnection2TripMatcher(FromDriver());
 	if (!TripStartOrEnd(*appCon, tripId, false))
 	{
-		return 1;
+		return -1;
 	}
 
-	LOGI("Exit.\n");
+	Pause("exit");
 	return 0;
 }
 
@@ -145,7 +157,7 @@ bool RegesterCert(Net::Connection& con, const ComMsg::DriContact& contact)
 
 	Ra::X509Req certReq(*state.GetKeyContainer().GetSignKeyPair(), "Driver");
 
-	ComMsg::DriReg regMsg(contact, "Driver Payment Info XXXXX", certReq.ToPemString(), "DriLicense");
+	ComMsg::DriReg regMsg(contact, "-Driver Pay Info-", certReq.ToPemString(), "DriLicense");
 
 	std::shared_ptr<Decent::Ra::TlsConfig> pasTlsCfg = std::make_shared<Decent::Ra::TlsConfig>(AppNames::sk_passengerMgm, state);
 	Decent::Net::TlsCommLayer pasTls(&con, pasTlsCfg, true);
@@ -189,7 +201,23 @@ std::unique_ptr<ComMsg::BestMatches> SendQuery(Net::Connection& con)
 		return false;
 	}
 
-	return ParseMsg<ComMsg::BestMatches>(msgBuf);
+	std::unique_ptr<ComMsg::BestMatches> matchesMsg = ParseMsg<ComMsg::BestMatches>(msgBuf);
+	if (!matchesMsg)
+	{
+		return nullptr;
+	}
+
+	const std::vector<ComMsg::MatchItem>& matches = matchesMsg->GetMatches();
+	PRINT_I("Found Matches:");
+	for (const ComMsg::MatchItem& match : matches)
+	{
+		PRINT_I("\tID: %s, Ori: (%f, %f), Dest: (%f, %f).",
+			match.GetTripId().c_str(),
+			match.GetPath().GetPath().front().GetX(), match.GetPath().GetPath().front().GetY(),
+			match.GetPath().GetPath().back().GetX(), match.GetPath().GetPath().back().GetY());
+	}
+
+	return std::move(matchesMsg);
 }
 
 bool ConfirmMatch(Net::Connection& con, const ComMsg::DriContact& contact, const std::string& tripId)
@@ -212,9 +240,9 @@ bool ConfirmMatch(Net::Connection& con, const ComMsg::DriContact& contact, const
 		return false;
 	}
 
-	LOGI("Matched Passenger:");
-	LOGI("\tName:  %s.", pasContact->GetName().c_str());
-	LOGI("\tPhone: %s.", pasContact->GetPhone().c_str());
+	PRINT_I("Matched Passenger:");
+	PRINT_I("\tName:  %s.", pasContact->GetName().c_str());
+	PRINT_I("\tPhone: %s.", pasContact->GetPhone().c_str());
 
 	return true;
 }
@@ -234,7 +262,7 @@ bool TripStartOrEnd(Net::Connection& con, const std::string& tripId, const bool 
 		return false;
 	}
 
-	LOGI("Trip %s.", isStart ? "started" : "ended");
+	PRINT_I("Trip %s.", isStart ? "started" : "ended");
 
 	return true;
 }

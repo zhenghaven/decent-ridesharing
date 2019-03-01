@@ -6,6 +6,8 @@
 
 #include "Enclave_u.h"
 
+using namespace RideShare;
+
 bool PaymentApp::ProcessMsgFromTripMatcher(Decent::Net::Connection & connection)
 {
 	int retValue = false;

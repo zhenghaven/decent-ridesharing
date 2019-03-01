@@ -57,7 +57,7 @@ int main(int argc, char ** argv)
 	if (!GetConfigurationJsonString(configPathArg.getValue(), configJsonStr))
 	{
 		std::cout << "Failed to load configuration file." << std::endl;
-		return 1;
+		return -1;
 	}
 	ConfigManager configManager(configJsonStr);
 	ConnectionManager::SetConfigManager(configManager);
@@ -76,9 +76,9 @@ int main(int argc, char ** argv)
 
 	serverCon = std::make_unique<Net::TCPConnection>(serverIp, decentServerItem.GetPort());
 
-	std::shared_ptr<TripMatcher> enclave(
-		std::make_shared<TripMatcher>(
-			ENCLAVE_FILENAME, KnownFolderType::LocalAppDataEnclave, TOKEN_FILENAME, wlKeyArg.getValue(), *serverCon));
+	std::shared_ptr<TripMatcher> enclave = std::make_shared<TripMatcher>(
+		ENCLAVE_FILENAME, KnownFolderType::LocalAppDataEnclave, TOKEN_FILENAME, wlKeyArg.getValue(), *serverCon, 
+		"TripMatcher Pay Info" + tripMatcherItem.GetAddr() + std::to_string(tripMatcherItem.GetPort()));
 
 
 	Net::SmartServer smartServer;

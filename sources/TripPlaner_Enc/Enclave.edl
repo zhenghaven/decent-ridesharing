@@ -1,23 +1,14 @@
-enclave {
-	
-	include "sgx_key_exchange.h"
-	include "sgx_trts.h"
-	
-	from "sgx_ra_client.edl" import *;
-	from "sgx_ra_sp.edl" import *;
-	from "decent_tools.edl" import *;
-	from "decent_net.edl" import *;
-	from "decent_ra_app.edl" import *;
+enclave
+{
+	from "ride_share.edl" import *;
 
-	trusted 
+	trusted
 	{
 		public int ecall_ride_share_tp_from_pas([user_check] void* connection);
 	};
 
 	untrusted
 	{
-		void ocall_ride_share_cnt_mgr_close_cnt([user_check] void* cnt_ptr);
-
 		void ocall_ride_share_cnt_mgr_get_pas_mgm([out] void** out_cnt_ptr);
 		void ocall_ride_share_cnt_mgr_get_billing([out] void** out_cnt_ptr);
 	};

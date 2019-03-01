@@ -57,7 +57,7 @@ int main(int argc, char ** argv)
 	if (!GetConfigurationJsonString(configPathArg.getValue(), configJsonStr))
 	{
 		std::cout << "Failed to load configuration file." << std::endl;
-		return 1;
+		return -1;
 	}
 	ConfigManager configManager(configJsonStr);
 	ConnectionManager::SetConfigManager(configManager);
@@ -77,9 +77,9 @@ int main(int argc, char ** argv)
 
 	serverCon = std::make_unique<Net::TCPConnection>(serverIp, decentServerItem.GetPort());
 
-	std::shared_ptr<PaymentApp> enclave(
-		std::make_shared<PaymentApp>(
-			ENCLAVE_FILENAME, KnownFolderType::LocalAppDataEnclave, TOKEN_FILENAME, wlKeyArg.getValue(), *serverCon));
+	std::shared_ptr<PaymentApp> enclave = std::make_shared<PaymentApp>(
+		ENCLAVE_FILENAME, KnownFolderType::LocalAppDataEnclave, TOKEN_FILENAME, wlKeyArg.getValue(), *serverCon, 
+		"Payment Pay Info" + paymentItem.GetAddr() + std::to_string(paymentItem.GetPort()));
 
 
 	Net::SmartServer smartServer;

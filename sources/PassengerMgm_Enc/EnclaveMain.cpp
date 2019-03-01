@@ -21,14 +21,14 @@
 #include "../Common/RideSharingFuncNums.h"
 #include "../Common/RideSharingMessages.h"
 
+#include "../Common_Enc/OperatorPayment.h"
+
 using namespace RideShare;
 using namespace Decent::Ra;
 
 namespace
 {
 	static States& gs_state = States::Get();
-	
-	std::string gs_selfPaymentInfo = "Passenger Payment Info Test";
 	
 	struct PasProfileItem
 	{
@@ -56,7 +56,6 @@ namespace
 	template<typename MsgType>
 	static std::unique_ptr<MsgType> ParseMsg(const std::string& msgStr)
 	{
-		//LOGW("Parsing Msg (size = %llu): \n%s\n", msgStr.size(), msgStr.c_str());
 		try
 		{
 			rapidjson::Document json;
@@ -94,19 +93,19 @@ static void ProcessPasRegisterReq(void* const connection, Decent::Net::TlsCommLa
 		return;
 	}
 
-	const std::string& csrPem = pasRegInfo->GetCsr();
-	X509Req certReq(csrPem);
-
-	if (!certReq)
+	X509Req certReq = pasRegInfo->GetCsr();
+	if (!certReq ||
+		!certReq.VerifySignature() ||
+		!certReq.GetEcPublicKey())
 	{
 		return;
 	}
 
-	const std::string pasPubPemStr = certReq.GetEcPublicKey().ToPubPemString();
+	const std::string pasId = certReq.GetEcPublicKey().ToPubPemString();
 
 	{
 		std::unique_lock<std::mutex> pasProfilesLock(gs_pasProfilesMutex);
-		if (gsk_pasProfiles.find(pasPubPemStr) != gsk_pasProfiles.cend())
+		if (gsk_pasProfiles.find(pasId) != gsk_pasProfiles.cend())
 		{
 			LOGI("Client profile already exist.");
 			return;
@@ -116,21 +115,19 @@ static void ProcessPasRegisterReq(void* const connection, Decent::Net::TlsCommLa
 	std::shared_ptr<const Decent::MbedTlsObj::ECKeyPair> prvKey = gs_state.GetKeyContainer().GetSignKeyPair();
 	std::shared_ptr<const AppX509> cert = std::dynamic_pointer_cast<const AppX509>(gs_state.GetCertContainer().GetCert());
 
-	if (!certReq.VerifySignature() ||
-		!certReq.GetEcPublicKey() ||
-		!prvKey || !*prvKey ||
+	if (!prvKey || !*prvKey ||
 		!cert || !*cert)
 	{
 		return;
 	}
 
-	ClientX509 clientCert(certReq.GetEcPublicKey(), *cert, *prvKey, "Decent_RideShare_Passenger" + pasRegInfo->GetContact().GetName(), 
+	ClientX509 clientCert(certReq.GetEcPublicKey(), *cert, *prvKey, "Decent_RideShare_Passenger_" + pasRegInfo->GetContact().GetName(), 
 		cppcodec::base64_rfc4648::encode(pasRegInfo->GetContact().CalcHash()));
 
 	{
 		std::unique_lock<std::mutex> pasProfilesLock(gs_pasProfilesMutex);
 
-		gs_pasProfiles.insert(std::make_pair(pasPubPemStr,
+		gs_pasProfiles.insert(std::make_pair(pasId,
 			PasProfileItem(pasRegInfo->GetContact().GetName(), pasRegInfo->GetContact().GetPhone(), pasRegInfo->GetPayment())));
 
 		LOGI("Client profile added. Profile store size: %llu.", gsk_pasProfiles.size());
@@ -142,6 +139,11 @@ static void ProcessPasRegisterReq(void* const connection, Decent::Net::TlsCommLa
 
 extern "C" int ecall_ride_share_pm_from_pas(void* const connection)
 {
+	if (!OperatorPayment::IsPaymentInfoValid())
+	{
+		return false;
+	}
+
 	using namespace EncFunc::PassengerMgm;
 
 	LOGI("Processing message from passenger...");
@@ -150,14 +152,10 @@ extern "C" int ecall_ride_share_pm_from_pas(void* const connection)
 	Decent::Net::TlsCommLayer pasTls(connection, pasTlsCfg, false);
 
 	std::string msgBuf;
-	if (!pasTls.ReceiveMsg(connection, msgBuf) ||
-		msgBuf.size() != sizeof(NumType))
+	if (!pasTls.ReceiveMsg(connection, msgBuf) )
 	{
-		LOGI("Recv size: %llu", msgBuf.size());
 		return false;
 	}
-
-	LOGI("TLS Handshake Successful!");
 
 	const NumType funcNum = EncFunc::GetNum<EncFunc::PassengerMgm::NumType>(msgBuf);
 
@@ -199,6 +197,11 @@ static void LogQuery(void* const connection, Decent::Net::TlsCommLayer& tls)
 
 extern "C" int ecall_ride_share_pm_from_trip_planner(void* const connection)
 {
+	if (!OperatorPayment::IsPaymentInfoValid())
+	{
+		return false;
+	}
+
 	using namespace EncFunc::PassengerMgm;
 
 	LOGI("Processing message from Trip Planner...");
@@ -207,14 +210,10 @@ extern "C" int ecall_ride_share_pm_from_trip_planner(void* const connection)
 	Decent::Net::TlsCommLayer tpTls(connection, tpTlsCfg, true);
 
 	std::string msgBuf;
-	if (!tpTls.ReceiveMsg(connection, msgBuf) ||
-		msgBuf.size() != sizeof(NumType))
+	if (!tpTls.ReceiveMsg(connection, msgBuf) )
 	{
-		LOGW("Recv size: %llu", msgBuf.size());
 		return false;
 	}
-
-	LOGI("TLS Handshake Successful!");
 
 	const NumType funcNum = EncFunc::GetNum<NumType>(msgBuf);
 
@@ -242,10 +241,8 @@ static void RequestPaymentInfo(void* const connection, Decent::Net::TlsCommLayer
 		return;
 	}
 
-	LOGI("Looking for payment info of passenger: %s", pasId.c_str());
-
 	std::string pasPayInfo;
-	std::string selfPayInfo = gs_selfPaymentInfo;
+	std::string selfPayInfo = OperatorPayment::GetPaymentInfo();
 	{
 		std::unique_lock<std::mutex> pasProfilesLock(gs_pasProfilesMutex);
 		auto it = gsk_pasProfiles.find(pasId);
@@ -265,6 +262,11 @@ static void RequestPaymentInfo(void* const connection, Decent::Net::TlsCommLayer
 
 extern "C" int ecall_ride_share_pm_from_payment(void* const connection)
 {
+	if (!OperatorPayment::IsPaymentInfoValid())
+	{
+		return false;
+	}
+
 	using namespace EncFunc::PassengerMgm;
 
 	LOGI("Processing message from payment services...");
@@ -273,14 +275,10 @@ extern "C" int ecall_ride_share_pm_from_payment(void* const connection)
 	Decent::Net::TlsCommLayer payTls(connection, payTlsCfg, true);
 
 	std::string msgBuf;
-	if (!payTls.ReceiveMsg(connection, msgBuf) ||
-		msgBuf.size() != sizeof(NumType))
+	if (!payTls.ReceiveMsg(connection, msgBuf) )
 	{
-		LOGW("Recv size: %llu", msgBuf.size());
 		return false;
 	}
-
-	LOGI("TLS Handshake Successful!");
 
 	const NumType funcNum = EncFunc::GetNum<NumType>(msgBuf);
 

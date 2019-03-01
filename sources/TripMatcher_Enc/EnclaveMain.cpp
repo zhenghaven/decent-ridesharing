@@ -25,6 +25,9 @@
 #include "../Common/RideSharingMessages.h"
 #include "../Common/UnexpectedErrorException.h"
 
+#include "../Common_Enc/OperatorPayment.h"
+#include "../Common_Enc/Connector.h"
+
 #include "Enclave_t.h"
 
 using namespace RideShare;
@@ -35,8 +38,6 @@ using namespace Decent::Tools;
 namespace
 {
 	static States& gs_state = States::Get();
-	
-	std::string gs_selfPaymentInfo = "Trip Matcher Payment Info Test";
 	
 	struct ConfirmedQuoteItem
 	{
@@ -106,7 +107,6 @@ namespace
 	template<typename MsgType>
 	static std::unique_ptr<MsgType> ParseMsg(const std::string& msgStr)
 	{
-		//LOGW("Parsing Msg (size = %llu): \n%s\n", msgStr.size(), msgStr.c_str());
 		try
 		{
 			rapidjson::Document json;
@@ -119,26 +119,6 @@ namespace
 			return nullptr;
 		}
 	}
-
-	typedef sgx_status_t(*CntBuilderType)(void**);
-
-	struct CntWraper
-	{
-		CntWraper(CntBuilderType cntBuilder) :
-			m_ptr(nullptr)
-		{
-			if ((*cntBuilder)(&m_ptr) != SGX_SUCCESS)
-			{
-				m_ptr = nullptr;
-			}
-		}
-
-		~CntWraper()
-		{
-			ocall_ride_share_cnt_mgr_close_cnt(m_ptr);
-		}
-		void* m_ptr;
-	};
 }
 
 static std::unique_ptr<ComMsg::SignedQuote> ParseSignedQuote(const std::string& msg, Decent::Ra::States& state)
@@ -152,7 +132,6 @@ static std::unique_ptr<ComMsg::SignedQuote> ParseSignedQuote(const std::string& 
 	}
 	catch (const std::exception&)
 	{
-		LOGW("Failed to parse SignedQuote message!")
 		return nullptr;
 	}
 }
@@ -175,7 +154,7 @@ static bool AddConfirmedQuote(std::unique_ptr<ConfirmedQuoteItem>& item)
 	std::unique_lock<std::mutex> mapLockQuote(gs_confirmedQuoteMapMutex);
 	if (gs_confirmedQuoteIdMap.find(tripId) != gs_confirmedQuoteIdMap.end())
 	{
-		LOGW("Quote already exist!");
+		LOGI("Quote already exist!");
 		return false;
 	}
 
@@ -183,7 +162,7 @@ static bool AddConfirmedQuote(std::unique_ptr<ConfirmedQuoteItem>& item)
 		std::unique_lock<std::mutex> mapLockMatched(gs_matchedMapMutex);
 		if (gsk_matchedMap.find(tripId) != gsk_matchedMap.cend())
 		{
-			LOGW("Quote already exist!");
+			LOGI("Quote already exist!");
 			return false;
 		}
 	}
@@ -354,13 +333,11 @@ static void ProcessPayment(const std::shared_ptr<MatchedItem>& item)
 {
 	using namespace EncFunc::Payment;
 
-	ComMsg::FinalBill bill(std::move(item->m_quote), std::string(gs_selfPaymentInfo), std::move(item->m_driId));
+	ComMsg::FinalBill bill(std::move(item->m_quote), std::string(OperatorPayment::GetPaymentInfo()), std::move(item->m_driId));
 
-	LOGI("Sending final bill to payment services.");
+	LOGI("Sending final bill to payment services...");
 
-	LOGI("Connecting to a Payment Services...");
-
-	CntWraper cnt(&ocall_ride_share_cnt_mgr_get_payment);
+	Connector cnt(&ocall_ride_share_cnt_mgr_get_payment);
 	if (!cnt.m_ptr)
 	{
 		return;
@@ -441,6 +418,11 @@ static void TripEnd(void* const connection, Decent::Net::TlsCommLayer& tls, cons
 
 extern "C" int ecall_ride_share_tm_from_pas(void* const connection)
 {
+	if (!OperatorPayment::IsPaymentInfoValid())
+	{
+		return false;
+	}
+
 	using namespace EncFunc::TripMatcher;
 
 	LOGI("Processing message from passenger...");
@@ -449,14 +431,10 @@ extern "C" int ecall_ride_share_tm_from_pas(void* const connection)
 	Decent::Net::TlsCommLayer pasTls(connection, tlsCfg, true);
 
 	std::string msgBuf;
-	if (!pasTls.ReceiveMsg(connection, msgBuf) ||
-		msgBuf.size() != sizeof(NumType))
+	if (!pasTls.ReceiveMsg(connection, msgBuf)  )
 	{
-		LOGI("Recv size: %llu", msgBuf.size());
 		return false;
 	}
-
-	LOGI("TLS Handshake Successful!");
 
 	const NumType funcNum = EncFunc::GetNum<EncFunc::PassengerMgm::NumType>(msgBuf);
 
@@ -534,7 +512,7 @@ static std::vector<ConfirmedQuoteItem*> FindMatchSort(std::vector<std::pair<Conf
 	LOGI("List of matches:");
 	for (const std::pair<ConfirmedQuoteItem*, double>& item : midRes)
 	{
-		LOGI("\t%#X, %f", item.first, item.second);
+		LOGI("\tDist: %f", item.second);
 		res.push_back(item.first);
 	}
 
@@ -559,6 +537,27 @@ static std::vector<ComMsg::MatchItem> FindMatchFinal(const std::vector<Confirmed
 	return std::move(res);
 }
 
+static bool SendQueryLog(const std::string& userId, const ComMsg::Point2D<double>& loc)
+{
+	using namespace EncFunc::DriverMgm;
+
+	LOGI("Sending query log to a driver management...");
+
+	Connector cnt(&ocall_ride_share_cnt_mgr_get_dri_mgm);
+	if (!cnt.m_ptr)
+	{
+		return false;
+	}
+
+	ComMsg::DriQueryLog log(userId, loc);
+
+	std::shared_ptr<Decent::Ra::TlsConfig> tlsCfg = std::make_shared<Decent::Ra::TlsConfig>(AppNames::sk_driverMgm, gs_state, false);
+	Decent::Net::TlsCommLayer tls(cnt.m_ptr, tlsCfg, true);
+
+	return tls.SendMsg(cnt.m_ptr, EncFunc::GetMsgString(k_logQuery)) &&
+		tls.SendMsg(cnt.m_ptr, log.ToString());
+}
+
 static void DriverFindMatchReq(void* const connection, Decent::Net::TlsCommLayer& tls)
 {
 	LOGI("Process driver find match request...");
@@ -572,7 +571,12 @@ static void DriverFindMatchReq(void* const connection, Decent::Net::TlsCommLayer
 		return;
 	}
 
-	//TODO: Send Query Log
+	const std::string driId = tls.GetPublicKeyPem();
+	if (driId.size() == 0 ||
+		!SendQueryLog(driId, driLoc->GetLoc()))
+	{
+		return;
+	}
 	
 	std::vector<std::pair<ConfirmedQuoteItem*, double> > midRes = FindMatchInitial(driLoc->GetLoc());
 	const std::vector<ConfirmedQuoteItem*> matchesList = FindMatchSort(midRes);
@@ -639,6 +643,11 @@ static void DriverConfirmMatchReq(void* const connection, Decent::Net::TlsCommLa
 
 extern "C" int ecall_ride_share_tm_from_dri(void* const connection)
 {
+	if (!OperatorPayment::IsPaymentInfoValid())
+	{
+		return false;
+	}
+
 	using namespace EncFunc::TripMatcher;
 
 	LOGI("Processing message from driver...");
@@ -647,14 +656,10 @@ extern "C" int ecall_ride_share_tm_from_dri(void* const connection)
 	Decent::Net::TlsCommLayer driTls(connection, tlsCfg, true);
 
 	std::string msgBuf;
-	if (!driTls.ReceiveMsg(connection, msgBuf) ||
-		msgBuf.size() != sizeof(NumType))
+	if (!driTls.ReceiveMsg(connection, msgBuf) )
 	{
-		LOGW("Recv size: %llu", msgBuf.size());
 		return false;
 	}
-
-	LOGI("TLS Handshake Successful!");
 
 	const NumType funcNum = EncFunc::GetNum<NumType>(msgBuf);
 

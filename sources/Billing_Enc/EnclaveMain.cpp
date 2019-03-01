@@ -20,19 +20,18 @@
 #include "../Common/RideSharingFuncNums.h"
 #include "../Common/RideSharingMessages.h"
 
+#include "../Common_Enc/OperatorPayment.h"
+
 using namespace RideShare;
 using namespace Decent::Ra;
 
 namespace
 {
 	static States& gs_state = States::Get();
-	
-	std::string gs_selfPaymentInfo = "Billing Payment Info Test";
 
 	template<typename MsgType>
 	static std::unique_ptr<MsgType> ParseMsg(const std::string& msgStr)
 	{
-		//LOGW("Parsing Msg (size = %llu): \n%s\n", msgStr.size(), msgStr.c_str());
 		try
 		{
 			rapidjson::Document json;
@@ -81,14 +80,13 @@ static void ProcessCalPriceReq(void* const connection, Decent::Net::TlsCommLayer
 	if (!tls.ReceiveMsg(connection, msgBuf) ||
 		!(pathMsg = ParseMsg<ComMsg::Path>(msgBuf)))
 	{
-		LOGW("Failed to receive path! (Msg Buf: %s)", msgBuf.c_str());
 		return;
 	}
 
 	const double price = CalPrice(pathMsg->GetPath());
 	LOGI("Got price: %f.", price);
 
-	ComMsg::Price priceMsg(price, gs_selfPaymentInfo);
+	ComMsg::Price priceMsg(price, OperatorPayment::GetPaymentInfo());
 
 	tls.SendMsg(connection, priceMsg.ToString());
 
@@ -96,6 +94,11 @@ static void ProcessCalPriceReq(void* const connection, Decent::Net::TlsCommLayer
 
 extern "C" int ecall_ride_share_bill_from_trip_planner(void* const connection)
 {
+	if (!OperatorPayment::IsPaymentInfoValid())
+	{
+		return false;
+	}
+
 	using namespace EncFunc::Billing;
 
 	LOGI("Processing message from Trip Planner...");
@@ -104,14 +107,10 @@ extern "C" int ecall_ride_share_bill_from_trip_planner(void* const connection)
 	Decent::Net::TlsCommLayer tpTls(connection, tpTlsCfg, true);
 
 	std::string msgBuf;
-	if (!tpTls.ReceiveMsg(connection, msgBuf) ||
-		msgBuf.size() != sizeof(NumType))
+	if (!tpTls.ReceiveMsg(connection, msgBuf) )
 	{
-		LOGW("Recv size: %llu", msgBuf.size());
 		return false;
 	}
-
-	LOGI("TLS Handshake Successful!");
 
 	const NumType funcNum = EncFunc::GetNum<NumType>(msgBuf);
 
