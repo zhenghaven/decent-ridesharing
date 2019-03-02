@@ -8,12 +8,12 @@
 #include <DecentApi/Common/Common.h>
 #include <DecentApi/Common/make_unique.h>
 #include <DecentApi/Common/Ra/TlsConfig.h>
-#include <DecentApi/Common/Ra/States.h>
 #include <DecentApi/Common/Ra/KeyContainer.h>
 #include <DecentApi/Common/Ra/CertContainer.h>
 #include <DecentApi/Common/Net/TlsCommLayer.h>
 #include <DecentApi/Common/Tools/JsonTools.h>
 #include <DecentApi/Common/MbedTls/MbedTlsHelpers.h>
+#include <DecentApi/DecentAppEnclave/AppStatesSingleton.h>
 
 #include <rapidjson/document.h>
 #include <cppcodec/base64_default_rfc4648.hpp>
@@ -37,7 +37,7 @@ using namespace Decent::Tools;
 
 namespace
 {
-	static States& gs_state = States::Get();
+	static AppStates& gs_state = GetAppStateSingleton();
 	
 	struct ConfirmedQuoteItem
 	{

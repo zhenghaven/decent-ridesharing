@@ -15,6 +15,7 @@
 #include <DecentApi/CommonApp/Ra/Messages.h>
 #include <DecentApi/CommonApp/Tools/ConfigManager.h>
 
+#include <DecentApi/Common/Common.h>
 #include <DecentApi/Common/Ra/WhiteList/HardCoded.h>
 
 #include "../Common/AppNames.h"
@@ -56,7 +57,7 @@ int main(int argc, char ** argv)
 	std::string configJsonStr;
 	if (!GetConfigurationJsonString(configPathArg.getValue(), configJsonStr))
 	{
-		std::cout << "Failed to load configuration file." << std::endl;
+		PRINT_W("Failed to load configuration file.");
 		return -1;
 	}
 	ConfigManager configManager(configJsonStr);
@@ -77,9 +78,18 @@ int main(int argc, char ** argv)
 
 	serverCon = std::make_unique<Net::TCPConnection>(serverIp, decentServerItem.GetPort());
 
-	std::shared_ptr<TripPlanerApp> enclave = std::make_shared<TripPlanerApp>(
-		ENCLAVE_FILENAME, KnownFolderType::LocalAppDataEnclave, TOKEN_FILENAME, wlKeyArg.getValue(), *serverCon, 
-		"TripPlanner Pay Info" + tripPlannerItem.GetAddr() + std::to_string(tripPlannerItem.GetPort()));
+	std::shared_ptr<TripPlanerApp> enclave;
+	try
+	{
+		enclave = std::make_shared<TripPlanerApp>(
+			ENCLAVE_FILENAME, KnownFolderType::LocalAppDataEnclave, TOKEN_FILENAME, wlKeyArg.getValue(), *serverCon, 
+			"TripPlanner Pay Info" + tripPlannerItem.GetAddr() + std::to_string(tripPlannerItem.GetPort()));
+	}
+	catch (const std::exception& e)
+	{
+		PRINT_W("Failed to start enclave program! Error Msg:\n%s", e.what());
+		return -1;
+	}
 
 
 	Net::SmartServer smartServer;
@@ -91,6 +101,6 @@ int main(int argc, char ** argv)
 	smartServer.RunUtilUserTerminate();
 	
 
-	printf("Exit ...\n");
+	PRINT_I("Exit.");
 	return 0;
 }

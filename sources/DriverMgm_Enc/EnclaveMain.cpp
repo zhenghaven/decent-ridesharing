@@ -4,11 +4,11 @@
 #include <DecentApi/Common/Common.h>
 #include <DecentApi/Common/make_unique.h>
 #include <DecentApi/Common/Ra/TlsConfig.h>
-#include <DecentApi/Common/Ra/States.h>
 #include <DecentApi/Common/Ra/KeyContainer.h>
 #include <DecentApi/Common/Ra/CertContainer.h>
 #include <DecentApi/Common/Net/TlsCommLayer.h>
 #include <DecentApi/Common/Tools/JsonTools.h>
+#include <DecentApi/DecentAppEnclave/AppStatesSingleton.h>
 
 #include <rapidjson/document.h>
 #include <cppcodec/base64_default_rfc4648.hpp>
@@ -26,7 +26,7 @@ using namespace Decent::Ra;
 
 namespace
 {
-	static States& gs_state = States::Get();
+	static AppStates& gs_state = GetAppStateSingleton();
 	
 	struct DriProfileItem
 	{
@@ -128,7 +128,7 @@ static void ProcessDriRegisterReq(void* const connection, Decent::Net::TlsCommLa
 	}
 
 	std::shared_ptr<const Decent::MbedTlsObj::ECKeyPair> prvKey = gs_state.GetKeyContainer().GetSignKeyPair();
-	std::shared_ptr<const AppX509> cert = std::dynamic_pointer_cast<const AppX509>(gs_state.GetCertContainer().GetCert());
+	std::shared_ptr<const AppX509> cert = gs_state.GetAppCertContainer().GetAppCert();
 
 	if (!certReq.VerifySignature() ||
 		!certReq.GetEcPublicKey() ||

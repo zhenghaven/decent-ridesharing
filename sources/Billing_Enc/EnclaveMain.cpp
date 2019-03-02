@@ -6,11 +6,11 @@
 #include <DecentApi/Common/Common.h>
 #include <DecentApi/Common/make_unique.h>
 #include <DecentApi/Common/Ra/TlsConfig.h>
-#include <DecentApi/Common/Ra/States.h>
 #include <DecentApi/Common/Ra/KeyContainer.h>
 #include <DecentApi/Common/Ra/CertContainer.h>
 #include <DecentApi/Common/Net/TlsCommLayer.h>
 #include <DecentApi/Common/Tools/JsonTools.h>
+#include <DecentApi/DecentAppEnclave/AppStatesSingleton.h>
 
 #include <rapidjson/document.h>
 
@@ -27,7 +27,7 @@ using namespace Decent::Ra;
 
 namespace
 {
-	static States& gs_state = States::Get();
+	static AppStates& gs_state = GetAppStateSingleton();
 
 	template<typename MsgType>
 	static std::unique_ptr<MsgType> ParseMsg(const std::string& msgStr)

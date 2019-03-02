@@ -1,1 +1,1 @@
-#include <DecentApi/Common/Ra/DefaultStatesConfig.h>
+#include <DecentApi/DecentAppEnclave/DefaultStatesConfig.h>

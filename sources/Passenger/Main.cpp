@@ -7,12 +7,12 @@
 #include <DecentApi/Common/Common.h>
 #include <DecentApi/Common/Net/TlsCommLayer.h>
 #include <DecentApi/Common/Tools/JsonTools.h>
-#include <DecentApi/Common/Ra/States.h>
 #include <DecentApi/Common/Ra/Crypto.h>
 #include <DecentApi/Common/Ra/TlsConfig.h>
 #include <DecentApi/Common/Ra/KeyContainer.h>
 #include <DecentApi/Common/Ra/CertContainer.h>
 #include <DecentApi/Common/Ra/WhiteList/Loaded.h>
+#include <DecentApi/Common/Ra/StatesSingleton.h>
 
 #include <DecentApi/CommonApp/Net/TCPConnection.h>
 #include <DecentApi/CommonApp/Tools/ConfigManager.h>
@@ -42,6 +42,8 @@ namespace
 	static std::random_device gs_randDev;
 	static std::mt19937 gs_randGen(gs_randDev());
 	static std::uniform_real_distribution<> gs_locRandDis(-5.0, 5.0);
+
+	static Ra::States& gs_state = Ra::GetStateSingleton();
 }
 
 template<typename MsgType>
@@ -98,18 +100,17 @@ int main(int argc, char ** argv)
 	Loaded loadedWhiteList(configManager.GetLoadedWhiteList().GetMap());
 
 	//Setting Loaded whitelist.
-	Ra::States& state = Ra::States::Get();
-	state.GetLoadedWhiteList(&loadedWhiteList);
+	gs_state.GetLoadedWhiteList(&loadedWhiteList);
 
 	//Setting up a temporary certificate.
 	std::shared_ptr<Decent::Ra::ServerX509> cert = std::make_shared<Decent::Ra::ServerX509>(
-		*state.GetKeyContainer().GetSignKeyPair(), "HashTemp", "PlatformTemp", "ReportTemp"
+		*gs_state.GetKeyContainer().GetSignKeyPair(), "HashTemp", "PlatformTemp", "ReportTemp"
 		);
 	if (!cert || !*cert)
 	{
 		return -1;
 	}
-	state.GetCertContainer().SetCert(cert);
+	gs_state.GetCertContainer().SetCert(cert);
 
 	ComMsg::PasContact contact("pasFirst pasLast", "1234567890");
 
@@ -159,13 +160,12 @@ int main(int argc, char ** argv)
 bool RegesterCert(Net::Connection& con, const ComMsg::PasContact& contact)
 {
 	using namespace EncFunc::PassengerMgm;
-	Ra::States& state = Ra::States::Get();
 
-	Ra::X509Req certReq(*state.GetKeyContainer().GetSignKeyPair(), "Passenger");
+	Ra::X509Req certReq(*gs_state.GetKeyContainer().GetSignKeyPair(), "Passenger");
 
 	ComMsg::PasReg regMsg(contact, "-Passneger Pay Info-", certReq.ToPemString());
 
-	std::shared_ptr<Decent::Ra::TlsConfig> pasTlsCfg = std::make_shared<Decent::Ra::TlsConfig>(AppNames::sk_passengerMgm, state);
+	std::shared_ptr<Decent::Ra::TlsConfig> pasTlsCfg = std::make_shared<Decent::Ra::TlsConfig>(AppNames::sk_passengerMgm, gs_state);
 	Decent::Net::TlsCommLayer pasTls(&con, pasTlsCfg, true);
 
 	std::string msgBuf;
@@ -183,7 +183,7 @@ bool RegesterCert(Net::Connection& con, const ComMsg::PasContact& contact)
 		return false;
 	}
 
-	state.GetCertContainer().SetCert(cert);
+	gs_state.GetCertContainer().SetCert(cert);
 
 
 	return true;
@@ -210,12 +210,11 @@ static std::unique_ptr<ComMsg::SignedQuote> ParseSignedQuote(const std::string& 
 bool SendQuery(Net::Connection& con, std::string& signedQuoteStr)
 {
 	using namespace EncFunc::TripPlaner;
-	Ra::States& state = Ra::States::Get();
 
 	ComMsg::GetQuote getQuote(ComMsg::Point2D<double>(gs_locRandDis(gs_randGen), gs_locRandDis(gs_randGen)), 
 		ComMsg::Point2D<double>(gs_locRandDis(gs_randGen), gs_locRandDis(gs_randGen)));
 
-	std::shared_ptr<Decent::Ra::TlsConfig> tpTlsCfg = std::make_shared<Decent::Ra::TlsConfig>(AppNames::sk_tripPlanner, state, false);
+	std::shared_ptr<Decent::Ra::TlsConfig> tpTlsCfg = std::make_shared<Decent::Ra::TlsConfig>(AppNames::sk_tripPlanner, gs_state, false);
 	Decent::Net::TlsCommLayer tpTls(&con, tpTlsCfg, true);
 
 	std::unique_ptr<ComMsg::SignedQuote> signedQuote;
@@ -223,7 +222,7 @@ bool SendQuery(Net::Connection& con, std::string& signedQuoteStr)
 	if (!tpTls.SendMsg(&con, EncFunc::GetMsgString(k_getQuote)) ||
 		!tpTls.SendMsg(&con, getQuote.ToString()) ||
 		!tpTls.ReceiveMsg(&con, signedQuoteStr) ||
-		!(signedQuote = ParseSignedQuote(signedQuoteStr, state)) ||
+		!(signedQuote = ParseSignedQuote(signedQuoteStr, gs_state)) ||
 		!(quote = ParseMsg<ComMsg::Quote>(signedQuote->GetQuote())))
 	{
 		return false;
@@ -237,11 +236,10 @@ bool SendQuery(Net::Connection& con, std::string& signedQuoteStr)
 bool ConfirmQuote(Net::Connection& con, const ComMsg::PasContact& contact, const std::string& signedQuoteStr, std::string& tripId)
 {
 	using namespace EncFunc::TripMatcher;
-	Ra::States& state = Ra::States::Get();
 
 	ComMsg::ConfirmQuote confirmQuote(contact, signedQuoteStr);
 
-	std::shared_ptr<Decent::Ra::TlsConfig> tmTlsCfg = std::make_shared<Decent::Ra::TlsConfig>(AppNames::sk_tripMatcher, state, false);
+	std::shared_ptr<Decent::Ra::TlsConfig> tmTlsCfg = std::make_shared<Decent::Ra::TlsConfig>(AppNames::sk_tripMatcher, gs_state, false);
 	Decent::Net::TlsCommLayer tmTls(&con, tmTlsCfg, true);
 	
 	std::string msgBuf;
@@ -266,9 +264,8 @@ bool ConfirmQuote(Net::Connection& con, const ComMsg::PasContact& contact, const
 bool TripStartOrEnd(Net::Connection& con, const std::string& tripId, const bool isStart)
 {
 	using namespace EncFunc::TripMatcher;
-	Ra::States& state = Ra::States::Get();
 
-	std::shared_ptr<Decent::Ra::TlsConfig> tmTlsCfg = std::make_shared<Decent::Ra::TlsConfig>(AppNames::sk_tripMatcher, state, false);
+	std::shared_ptr<Decent::Ra::TlsConfig> tmTlsCfg = std::make_shared<Decent::Ra::TlsConfig>(AppNames::sk_tripMatcher, gs_state, false);
 	Decent::Net::TlsCommLayer tmTls(&con, tmTlsCfg, true);
 
 	if (!tmTls.SendMsg(&con, EncFunc::GetMsgString(isStart ? k_tripStart : k_tripEnd)) ||

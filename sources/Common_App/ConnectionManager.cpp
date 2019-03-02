@@ -40,7 +40,8 @@ namespace
 		}
 		catch (const std::exception& e)
 		{
-			LOGW("Failed to establish connection. (Err Msg: %s)", e.what());
+			const char* msgStr = e.what();
+			LOGW("Failed to establish connection. (Err Msg: %s)", msgStr);
 			return nullptr;
 		}
 	}
