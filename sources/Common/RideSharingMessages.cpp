@@ -31,16 +31,6 @@ namespace
 	static constexpr int MBEDTLS_SUCCESS_RET = 0;
 
 	template<typename T>
-	static inline T ParseSubObj(const JsonValue& json, const char* label)
-	{
-		if (json.JSON_HAS_MEMBER(label))
-		{
-			return T(json[label]);
-		}
-		throw MessageParseException();
-	}
-
-	template<typename T>
 	std::vector<T> ParseArray(const JsonValue & json)
 	{
 		if (json.JSON_IS_ARRAY())
@@ -56,100 +46,10 @@ namespace
 	}
 
 	template<typename T>
-	std::vector<T> ParseArrayObj(const JsonValue & json, const char* label)
+	std::vector<T> ParseArrayObj(const JsonValue & json, const char* key)
 	{
-		if (json.JSON_HAS_MEMBER(label))
-		{
-			return ParseArray<T>(json[label]);
-		}
-		throw MessageParseException();
+		return ParseArray<T>(Decent::Net::CommonJsonMsg::GetMember(json, key));
 	}
-}
-
-template<>
-int Internal::ParseValue<int>(const JsonValue & json)
-{
-	if (json.JSON_IS_INT())
-	{
-		return json.JSON_AS_INT32();
-	}
-	throw MessageParseException();
-}
-
-template<>
-double Internal::ParseValue<double>(const JsonValue & json)
-{
-	if (json.JSON_IS_DOUBLE())
-	{
-		return json.JSON_AS_DOUBLE();
-	}
-	throw MessageParseException();
-}
-
-template<>
-std::string Internal::ParseValue<std::string>(const JsonValue & json)
-{
-	if (json.JSON_IS_STRING())
-	{
-		return json.JSON_AS_STRING();
-	}
-	throw MessageParseException();
-}
-
-template<>
-int Internal::ParseObj<int>(const JsonValue & json, const char * label)
-{
-	if (json.JSON_HAS_MEMBER(label))
-	{
-		return Internal::ParseValue<int>(json[label]);
-	}
-	throw MessageParseException();
-}
-
-template<>
-double Internal::ParseObj<double>(const JsonValue & json, const char * label)
-{
-	if (json.JSON_HAS_MEMBER(label))
-	{
-		return Internal::ParseValue<double>(json[label]);
-	}
-	throw MessageParseException();
-}
-
-template<>
-std::string Internal::ParseObj<std::string>(const JsonValue & json, const char * label)
-{
-	if (json.JSON_HAS_MEMBER(label))
-	{
-		return Internal::ParseValue<std::string>(json[label]);
-	}
-	throw MessageParseException();
-}
-
-std::string JsonMsg::ToString() const
-{
-	JsonDoc doc;
-	ToJson(doc);
-	return Tools::Json2StyledString(doc);
-}
-
-std::string JsonMsg::ToStyledString() const
-{
-	JsonDoc doc;
-	ToJson(doc);
-	return Tools::Json2StyledString(doc);
-}
-
-template<>
-Point2D<int> Point2D<int>::Parse(const JsonValue & json, const char * label)
-{
-	return ParseSubObj<Point2D<int> >(json, label);
-}
-
-template<>
-Point2D<double> Point2D<double>::Parse(const JsonValue & json, const char * label)
-{
-	return ParseSubObj<Point2D<double> >(json, label);
 }
 
 template<>
@@ -170,11 +70,6 @@ JsonValue & Point2D<double>::ToJson(JsonDoc & doc) const
 
 constexpr char const GetQuote::sk_labelOrigin[];
 
-GetQuote GetQuote::Parse(const JsonValue & json, const char * label)
-{
-	return ParseSubObj<GetQuote>(json, label);
-}
-
 JsonValue & GetQuote::ToJson(JsonDoc & doc) const
 {
 	JsonValue oriRoot = std::move(m_ori.ToJson(doc));
@@ -187,11 +82,6 @@ JsonValue & GetQuote::ToJson(JsonDoc & doc) const
 }
 
 constexpr char const Path::sk_labelPath[];
-
-Path Path::Parse(const JsonValue & json, const char* label)
-{
-	return ParseSubObj<Path>(json, label);
-}
 
 std::vector<Point2D<double> > Path::ParsePath(const JsonValue & json)
 {
@@ -218,11 +108,6 @@ JsonValue& Path::ToJson(JsonDoc& doc) const
 constexpr char const Price::sk_labelPrice[];
 constexpr char const Price::sk_labelOpPayment[];
 
-Price Price::Parse(const JsonValue & json, const char * label)
-{
-	return ParseSubObj<Price>(json, label);
-}
-
 JsonValue& Price::ToJson(JsonDoc& doc) const
 {
 	Tools::JsonSetVal(doc, Price::sk_labelPrice, m_price);
@@ -235,11 +120,6 @@ constexpr char const Quote::sk_labelPath[];
 constexpr char const Quote::sk_labelPrice[];
 constexpr char const Quote::sk_labelOpPayment[];
 constexpr char const Quote::sk_labelPasId[];
-
-Quote Quote::Parse(const JsonValue & json, const char * label)
-{
-	return ParseSubObj<Quote>(json, label);
-}
 
 JsonValue& Quote::ToJson(JsonDoc& doc) const
 {
@@ -293,9 +173,9 @@ SignedQuote SignedQuote::ParseSignedQuote(const JsonValue& json, Decent::Ra::Sta
 		throw MessageParseException();
 	}
 
-	std::string quoteStr = Internal::ParseValue<std::string>(json[SignedQuote::sk_labelQuote]);
-	std::string signStr = Internal::ParseValue<std::string>(json[SignedQuote::sk_labelSignature]);
-	std::string certPem = Internal::ParseValue<std::string>(json[SignedQuote::sk_labelCert]);
+	std::string quoteStr = ParseValue<std::string>(json[SignedQuote::sk_labelQuote]);
+	std::string signStr = ParseValue<std::string>(json[SignedQuote::sk_labelSignature]);
+	std::string certPem = ParseValue<std::string>(json[SignedQuote::sk_labelCert]);
 
 	AppX509 cert(certPem);
 	TlsConfig tlsCfg(appName, state, true);
@@ -335,11 +215,6 @@ JsonValue& SignedQuote::ToJson(JsonDoc& doc) const
 constexpr char const PasContact::sk_labelName[];
 constexpr char const PasContact::sk_labelPhone[];
 
-PasContact PasContact::Parse(const JsonValue & json, const char * label)
-{
-	return ParseSubObj<PasContact>(json, label);
-}
-
 JsonValue & PasContact::ToJson(JsonDoc & doc) const
 {
 	Tools::JsonSetVal(doc, sk_labelName, m_name);
@@ -369,11 +244,6 @@ Decent::General256Hash PasContact::CalcHash() const
 constexpr char const DriContact::sk_labelName[];
 constexpr char const DriContact::sk_labelPhone[];
 constexpr char const DriContact::sk_labelLicPlate[];
-
-DriContact DriContact::Parse(const JsonValue & json, const char * label)
-{
-	return ParseSubObj<DriContact>(json, label);
-}
 
 JsonValue & DriContact::ToJson(JsonDoc & doc) const
 {

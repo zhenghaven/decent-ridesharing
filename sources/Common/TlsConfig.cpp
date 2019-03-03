@@ -61,10 +61,6 @@ int TlsConfig::CertVerifyCallBack(mbedtls_x509_crt& cert, int depth, uint32_t& f
 
 int TlsConfig::ClientCertVerifyCallBack(const RideShare::ClientX509& cert, int depth, uint32_t& flag) const
 {
-	if (flag != MBEDTLS_SUCCESS_RET)
-	{//client cert is invalid!
-		return MBEDTLS_SUCCESS_RET;
-	}
-
+	//Currently we don't verify anything as long as the client's cert is signed by the expected Decent App.
 	return MBEDTLS_SUCCESS_RET;
 }

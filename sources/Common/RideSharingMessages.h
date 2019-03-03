@@ -3,7 +3,7 @@
 #include <string>
 #include <vector>
 
-#include <DecentApi/Common/Tools/JsonForwardDeclare.h>
+#include <DecentApi/Common/Net/CommonMessages.h>
 #include <DecentApi/Common/GeneralKeyTypes.h>
 
 namespace Decent
@@ -26,44 +26,12 @@ namespace RideShare
 		typedef Decent::Tools::JsonValue JsonValue;
 		typedef Decent::Tools::JsonDoc   JsonDoc;
 
-		namespace Internal
-		{
-			template<typename T>
-			T ParseValue(const JsonValue & json);
-			template<>
-			int Internal::ParseValue<int>(const JsonValue & json);
-			template<>
-			double Internal::ParseValue<double>(const JsonValue & json);
-			template<>
-			std::string Internal::ParseValue<std::string>(const JsonValue & json);
-
-			template<typename T>
-			T ParseObj(const JsonValue & json, const char* label);
-			template<>
-			int Internal::ParseObj<int>(const JsonValue & json, const char * label);
-			template<>
-			double Internal::ParseObj<double>(const JsonValue & json, const char * label);
-			template<>
-			std::string Internal::ParseObj<std::string>(const JsonValue & json, const char * label);
-
-		}
-
-		class JsonMsg
-		{
-		public:
-			virtual JsonValue& ToJson(JsonDoc& doc) const = 0;
-			virtual std::string ToString() const;
-			virtual std::string ToStyledString() const;
-		};
-
 		template<typename T>
-		class Point2D : virtual public JsonMsg
+		class Point2D : virtual public Decent::Net::CommonJsonMsg
 		{
 		public:
 			static constexpr char const sk_labelX[] = "X";
 			static constexpr char const sk_labelY[] = "Y";
-
-			static Point2D<T> Parse(const JsonValue& json, const char* label);
 
 		public:
 			Point2D() = delete;
@@ -86,8 +54,8 @@ namespace RideShare
 			{}
 
 			Point2D(const JsonValue& json) :
-				m_x(Internal::ParseObj<T>(json, sk_labelX)),
-				m_y(Internal::ParseObj<T>(json, sk_labelY))
+				m_x(ParseValue<T>(json, sk_labelX)),
+				m_y(ParseValue<T>(json, sk_labelY))
 			{}
 
 			~Point2D() {}
@@ -105,13 +73,11 @@ namespace RideShare
 		//template<class T> constexpr char const Point2D<T>::sk_labelX[];
 		//template<class T> constexpr char const Point2D<T>::sk_labelY[];
 
-		class GetQuote : virtual public JsonMsg
+		class GetQuote : virtual public Decent::Net::CommonJsonMsg
 		{
 		public:
 			static constexpr char const sk_labelOrigin[] = "Ori";
 			static constexpr char const sk_labelDest[] = "Dest";
-
-			static GetQuote Parse(const JsonValue& json, const char* label);
 
 		public:
 			GetQuote() = delete;
@@ -134,8 +100,8 @@ namespace RideShare
 			{}
 
 			GetQuote(const JsonValue& json) :
-				GetQuote(Point2D<double>::Parse(json, sk_labelOrigin),
-					Point2D<double>::Parse(json, sk_labelDest))
+				GetQuote(ParseSubMessage<Point2D<double> >(json, sk_labelOrigin),
+					ParseSubMessage<Point2D<double> >(json, sk_labelDest))
 			{}
 
 			~GetQuote() {}
@@ -150,12 +116,10 @@ namespace RideShare
 			Point2D<double> m_dest;
 		};
 
-		class Path :virtual public JsonMsg
+		class Path :virtual public Decent::Net::CommonJsonMsg
 		{
 		public:
 			static constexpr char const sk_labelPath[] = "Path";
-
-			static Path Parse(const JsonValue& json, const char* label);
 
 			static std::vector<Point2D<double> > ParsePath(const JsonValue& json);
 
@@ -191,13 +155,11 @@ namespace RideShare
 			std::vector<Point2D<double> > m_path;
 		};
 
-		class Price : virtual public JsonMsg
+		class Price : virtual public Decent::Net::CommonJsonMsg
 		{
 		public:
 			static constexpr char const sk_labelPrice[] = "Price";
 			static constexpr char const sk_labelOpPayment[] = "OpPay";
-
-			static Price Parse(const JsonValue& json, const char* label);
 
 		public:
 			Price() = delete;
@@ -220,8 +182,8 @@ namespace RideShare
 			{}
 
 			Price(const JsonValue& json) :
-				Price(Internal::ParseObj<double>(json, sk_labelPrice),
-					Internal::ParseObj<std::string>(json, sk_labelOpPayment))
+				Price(ParseValue<double>(json, sk_labelPrice),
+					ParseValue<std::string>(json, sk_labelOpPayment))
 			{}
 
 			~Price() {}
@@ -236,7 +198,7 @@ namespace RideShare
 			std::string m_opPayment;
 		};
 
-		class Quote : virtual public JsonMsg
+		class Quote : virtual public Decent::Net::CommonJsonMsg
 		{
 		public:
 			static constexpr char const sk_labelGetQuote[] = "GetQuote";
@@ -244,8 +206,6 @@ namespace RideShare
 			static constexpr char const sk_labelPrice[] = "Price";
 			static constexpr char const sk_labelOpPayment[] = "OpPay";
 			static constexpr char const sk_labelPasId[] = "PasId";
-
-			static Quote Parse(const JsonValue& json, const char* label);
 
 		public:
 			Quote() = delete;
@@ -278,11 +238,11 @@ namespace RideShare
 			{}
 
 			Quote(const JsonValue& json) :
-				Quote(GetQuote::Parse(json, sk_labelGetQuote),
-					Path::Parse(json, sk_labelPath),
-					Price::Parse(json, sk_labelPrice),
-					Internal::ParseObj<std::string>(json, sk_labelOpPayment),
-					Internal::ParseObj<std::string>(json, sk_labelPasId))
+				Quote(ParseSubMessage<GetQuote>(json, sk_labelGetQuote),
+					ParseSubMessage<Path>(json, sk_labelPath),
+					ParseSubMessage<Price>(json, sk_labelPrice),
+					ParseValue<std::string>(json, sk_labelOpPayment),
+					ParseValue<std::string>(json, sk_labelPasId))
 			{}
 
 			~Quote() {}
@@ -303,7 +263,7 @@ namespace RideShare
 			std::string m_pasId;
 		};
 
-		class SignedQuote : virtual public JsonMsg
+		class SignedQuote : virtual public Decent::Net::CommonJsonMsg
 		{
 		public:
 			static constexpr char const sk_labelQuote[] = "Quote";
@@ -350,13 +310,11 @@ namespace RideShare
 			std::string m_cert;
 		};
 
-		class PasContact : virtual public JsonMsg
+		class PasContact : virtual public Decent::Net::CommonJsonMsg
 		{
 		public:
 			static constexpr char const sk_labelName[] = "Name";
 			static constexpr char const sk_labelPhone[] = "Phone";
-
-			static PasContact Parse(const JsonValue& json, const char* label);
 
 		public:
 			PasContact() = delete;
@@ -381,8 +339,8 @@ namespace RideShare
 			{}
 
 			PasContact(const JsonValue& json) :
-				PasContact(Internal::ParseObj<std::string>(json, sk_labelName),
-					Internal::ParseObj<std::string>(json, sk_labelPhone))
+				PasContact(ParseValue<std::string>(json, sk_labelName),
+					ParseValue<std::string>(json, sk_labelPhone))
 			{}
 
 			~PasContact() {}
@@ -399,14 +357,12 @@ namespace RideShare
 			std::string m_phone;
 		};
 
-		class DriContact : virtual public JsonMsg
+		class DriContact : virtual public Decent::Net::CommonJsonMsg
 		{
 		public:
 			static constexpr char const sk_labelName[] = "Name";
 			static constexpr char const sk_labelPhone[] = "Phone";
 			static constexpr char const sk_labelLicPlate[] = "Plate";
-
-			static DriContact Parse(const JsonValue& json, const char* label);
 
 		public:
 			DriContact() = delete;
@@ -434,9 +390,9 @@ namespace RideShare
 			{}
 
 			DriContact(const JsonValue& json) :
-				DriContact(Internal::ParseObj<std::string>(json, sk_labelName),
-					Internal::ParseObj<std::string>(json, sk_labelPhone),
-					Internal::ParseObj<std::string>(json, sk_labelLicPlate))
+				DriContact(ParseValue<std::string>(json, sk_labelName),
+					ParseValue<std::string>(json, sk_labelPhone),
+					ParseValue<std::string>(json, sk_labelLicPlate))
 			{}
 
 			~DriContact() {}
@@ -454,7 +410,7 @@ namespace RideShare
 			std::string m_licPlate;
 		};
 
-		class ConfirmQuote : virtual public JsonMsg
+		class ConfirmQuote : virtual public Decent::Net::CommonJsonMsg
 		{
 		public:
 			static constexpr char const sk_labelPasContact[] = "Contact";
@@ -483,8 +439,8 @@ namespace RideShare
 			{}
 
 			ConfirmQuote(const JsonValue& json) :
-				ConfirmQuote(PasContact::Parse(json, sk_labelPasContact),
-					Internal::ParseObj<std::string>(json, sk_labelSignedQuote))
+				ConfirmQuote(ParseSubMessage<PasContact>(json, sk_labelPasContact),
+					ParseValue<std::string>(json, sk_labelSignedQuote))
 			{}
 
 			~ConfirmQuote() {}
@@ -499,7 +455,7 @@ namespace RideShare
 			std::string m_signQuote;
 		};
 
-		class DriSelection : virtual public JsonMsg
+		class DriSelection : virtual public Decent::Net::CommonJsonMsg
 		{
 		public:
 			static constexpr char const sk_labelDriContact[] = "Contact";
@@ -528,8 +484,8 @@ namespace RideShare
 			{}
 
 			DriSelection(const JsonValue& json) :
-				DriSelection(DriContact::Parse(json, sk_labelDriContact),
-					Internal::ParseObj<std::string>(json, sk_labelTripId))
+				DriSelection(ParseSubMessage<DriContact>(json, sk_labelDriContact),
+					ParseValue<std::string>(json, sk_labelTripId))
 			{}
 
 			~DriSelection() {}
@@ -544,7 +500,7 @@ namespace RideShare
 			std::string m_tripId;
 		};
 
-		class PasMatchedResult : virtual public JsonMsg
+		class PasMatchedResult : virtual public Decent::Net::CommonJsonMsg
 		{
 		public:
 			static constexpr char const sk_labelTripId[] = "TripId";
@@ -573,8 +529,8 @@ namespace RideShare
 			{}
 
 			PasMatchedResult(const JsonValue& json) :
-				PasMatchedResult(Internal::ParseObj<std::string>(json, sk_labelTripId),
-					DriContact::Parse(json, sk_labelDriContact))
+				PasMatchedResult(ParseValue<std::string>(json, sk_labelTripId),
+					ParseSubMessage<DriContact>(json, sk_labelDriContact))
 			{}
 
 			~PasMatchedResult() {}
@@ -589,7 +545,7 @@ namespace RideShare
 			std::string m_tripId;
 		};
 
-		class PasQueryLog : virtual public JsonMsg
+		class PasQueryLog : virtual public Decent::Net::CommonJsonMsg
 		{
 		public:
 			static constexpr char const sk_labelUserId[] = "UserId";
@@ -618,8 +574,8 @@ namespace RideShare
 			{}
 
 			PasQueryLog(const JsonValue& json) :
-				PasQueryLog(Internal::ParseObj<std::string>(json, sk_labelUserId),
-					GetQuote::Parse(json, sk_labelGetQuote))
+				PasQueryLog(ParseValue<std::string>(json, sk_labelUserId),
+					ParseSubMessage<GetQuote>(json, sk_labelGetQuote))
 			{}
 
 			~PasQueryLog() {}
@@ -634,7 +590,7 @@ namespace RideShare
 			GetQuote m_getQuote;
 		};
 
-		class DriverLoc : virtual public JsonMsg
+		class DriverLoc : virtual public Decent::Net::CommonJsonMsg
 		{
 		public:
 			static constexpr char const sk_labelOrigin[] = "Loc";
@@ -658,7 +614,7 @@ namespace RideShare
 			{}
 
 			DriverLoc(const JsonValue& json) :
-				DriverLoc(Point2D<double>::Parse(json, sk_labelOrigin))
+				DriverLoc(ParseSubMessage<Point2D<double> >(json, sk_labelOrigin))
 			{}
 
 			~DriverLoc() {}
@@ -671,7 +627,7 @@ namespace RideShare
 			Point2D<double> m_loc;
 		};
 
-		class MatchItem : virtual public JsonMsg
+		class MatchItem : virtual public Decent::Net::CommonJsonMsg
 		{
 		public:
 			static constexpr char const sk_labelTripId[] = "Id";
@@ -699,8 +655,8 @@ namespace RideShare
 			{}
 
 			MatchItem(const JsonValue& json) :
-				MatchItem(Internal::ParseObj<std::string>(json, sk_labelTripId),
-					Path::Parse(json, sk_labelPath))
+				MatchItem(ParseValue<std::string>(json, sk_labelTripId),
+					ParseSubMessage<Path>(json, sk_labelPath))
 			{}
 
 			~MatchItem() {}
@@ -715,7 +671,7 @@ namespace RideShare
 			Path m_path;
 		};
 
-		class BestMatches :virtual public JsonMsg
+		class BestMatches :virtual public Decent::Net::CommonJsonMsg
 		{
 		public:
 			static constexpr char const sk_labelMatches[] = "Mat";
@@ -754,7 +710,7 @@ namespace RideShare
 			std::vector<MatchItem> m_matches;
 		};
 
-		class DriQueryLog : virtual public JsonMsg
+		class DriQueryLog : virtual public Decent::Net::CommonJsonMsg
 		{
 		public:
 			static constexpr char const sk_labelDriverId[] = "DriverId";
@@ -783,8 +739,8 @@ namespace RideShare
 			{}
 
 			DriQueryLog(const JsonValue& json) :
-				DriQueryLog(Internal::ParseObj<std::string>(json, sk_labelDriverId),
-					Point2D<double>::Parse(json, sk_labelLoc))
+				DriQueryLog(ParseValue<std::string>(json, sk_labelDriverId),
+					ParseSubMessage<Point2D<double> >(json, sk_labelLoc))
 			{}
 
 			~DriQueryLog() {}
@@ -799,7 +755,7 @@ namespace RideShare
 			Point2D<double> m_loc;
 		};
 
-		class FinalBill : virtual public JsonMsg
+		class FinalBill : virtual public Decent::Net::CommonJsonMsg
 		{
 		public:
 			static constexpr char const sk_labelQuote[] = "Quote";
@@ -832,9 +788,9 @@ namespace RideShare
 			{}
 
 			FinalBill(const JsonValue& json) :
-				FinalBill(Quote::Parse(json, sk_labelQuote),
-					Internal::ParseObj<std::string>(json, sk_labelOpPayment),
-					Internal::ParseObj<std::string>(json, sk_labelDriId))
+				FinalBill(ParseSubMessage<Quote >(json, sk_labelQuote),
+					ParseValue<std::string>(json, sk_labelOpPayment),
+					ParseValue<std::string>(json, sk_labelDriId))
 			{}
 
 			~FinalBill() {}
@@ -851,7 +807,7 @@ namespace RideShare
 			std::string m_driId;
 		};
 
-		class PasReg : virtual public JsonMsg
+		class PasReg : virtual public Decent::Net::CommonJsonMsg
 		{
 		public:
 			static constexpr char const sk_labelContact[] = "Contact";
@@ -884,9 +840,9 @@ namespace RideShare
 			{}
 
 			PasReg(const JsonValue& json) :
-				PasReg(PasContact::Parse(json, sk_labelContact),
-					Internal::ParseObj<std::string>(json, sk_labelPayment),
-					Internal::ParseObj<std::string>(json, sk_labelCsr))
+				PasReg(ParseSubMessage<PasContact>(json, sk_labelContact),
+					ParseValue<std::string>(json, sk_labelPayment),
+					ParseValue<std::string>(json, sk_labelCsr))
 			{}
 
 			~PasReg() {}
@@ -903,7 +859,7 @@ namespace RideShare
 			std::string m_csr;
 		};
 
-		class DriReg : virtual public JsonMsg
+		class DriReg : virtual public Decent::Net::CommonJsonMsg
 		{
 		public:
 			static constexpr char const sk_labelContact[] = "Contact";
@@ -940,10 +896,10 @@ namespace RideShare
 			{}
 
 			DriReg(const JsonValue& json) :
-				DriReg(DriContact::Parse(json, sk_labelContact),
-					Internal::ParseObj<std::string>(json, sk_labelPayment),
-					Internal::ParseObj<std::string>(json, sk_labelCsr),
-					Internal::ParseObj<std::string>(json, sk_labelDriLic))
+				DriReg(ParseSubMessage<DriContact>(json, sk_labelContact),
+					ParseValue<std::string>(json, sk_labelPayment),
+					ParseValue<std::string>(json, sk_labelCsr),
+					ParseValue<std::string>(json, sk_labelDriLic))
 			{}
 
 			~DriReg() {}
@@ -962,7 +918,7 @@ namespace RideShare
 			std::string m_driLic;
 		};
 
-		class RequestedPayment : virtual public JsonMsg
+		class RequestedPayment : virtual public Decent::Net::CommonJsonMsg
 		{
 		public:
 			static constexpr char const sk_labelPayment[] = "Pay";
@@ -991,8 +947,8 @@ namespace RideShare
 			{}
 
 			RequestedPayment(const JsonValue& json) :
-				RequestedPayment(Internal::ParseObj<std::string>(json, sk_labelPayment),
-					Internal::ParseObj<std::string>(json, sk_labelOpPaymnet))
+				RequestedPayment(ParseValue<std::string>(json, sk_labelPayment),
+					ParseValue<std::string>(json, sk_labelOpPaymnet))
 			{}
 
 			~RequestedPayment() {}
