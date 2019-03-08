@@ -170,12 +170,9 @@ bool RegesterCert(Net::Connection& con, const ComMsg::PasContact& contact)
 
 	std::string msgBuf;
 
-	if (!pasTls.SendMsg(&con, EncFunc::GetMsgString(k_userReg)) ||
-		!pasTls.SendMsg(&con, regMsg.ToString()) ||
-		!pasTls.ReceiveMsg(&con, msgBuf))
-	{
-		return false;
-	}
+	pasTls.SendStruct(&con, k_userReg);
+	pasTls.SendMsg(&con, regMsg.ToString());
+	pasTls.ReceiveMsg(&con, msgBuf);
 
 	std::shared_ptr<ClientX509> cert = std::make_shared<ClientX509>(msgBuf);
 	if (!cert || !*cert)
@@ -219,10 +216,12 @@ bool SendQuery(Net::Connection& con, std::string& signedQuoteStr)
 
 	std::unique_ptr<ComMsg::SignedQuote> signedQuote;
 	std::unique_ptr<ComMsg::Quote> quote;
-	if (!tpTls.SendMsg(&con, EncFunc::GetMsgString(k_getQuote)) ||
-		!tpTls.SendMsg(&con, getQuote.ToString()) ||
-		!tpTls.ReceiveMsg(&con, signedQuoteStr) ||
-		!(signedQuote = ParseSignedQuote(signedQuoteStr, gs_state)) ||
+
+	tpTls.SendStruct(&con, k_getQuote);
+	tpTls.SendMsg(&con, getQuote.ToString());
+	tpTls.ReceiveMsg(&con, signedQuoteStr);
+
+	if (!(signedQuote = ParseSignedQuote(signedQuoteStr, gs_state)) ||
 		!(quote = ParseMsg<ComMsg::Quote>(signedQuote->GetQuote())))
 	{
 		return false;
@@ -244,10 +243,12 @@ bool ConfirmQuote(Net::Connection& con, const ComMsg::PasContact& contact, const
 	
 	std::string msgBuf;
 	std::unique_ptr<ComMsg::PasMatchedResult> matchedResult;
-	if (!tmTls.SendMsg(&con, EncFunc::GetMsgString(k_confirmQuote)) ||
-		!tmTls.SendMsg(&con, confirmQuote.ToString()) ||
-		!tmTls.ReceiveMsg(&con, msgBuf) ||
-		!(matchedResult = ParseMsg<ComMsg::PasMatchedResult>(msgBuf)) )
+
+	tmTls.SendStruct(&con, k_confirmQuote);
+	tmTls.SendMsg(&con, confirmQuote.ToString());
+	tmTls.ReceiveMsg(&con, msgBuf);
+
+	if (!(matchedResult = ParseMsg<ComMsg::PasMatchedResult>(msgBuf)) )
 	{
 		return false;
 	}
@@ -268,12 +269,8 @@ bool TripStartOrEnd(Net::Connection& con, const std::string& tripId, const bool 
 	std::shared_ptr<Decent::Ra::TlsConfig> tmTlsCfg = std::make_shared<Decent::Ra::TlsConfig>(AppNames::sk_tripMatcher, gs_state, false);
 	Decent::Net::TlsCommLayer tmTls(&con, tmTlsCfg, true);
 
-	if (!tmTls.SendMsg(&con, EncFunc::GetMsgString(isStart ? k_tripStart : k_tripEnd)) ||
-		!tmTls.SendMsg(&con, tripId) )
-	{
-		LOGW("Failed to send trip %s.", isStart ? "start" : "end");
-		return false;
-	}
+	tmTls.SendStruct(&con, isStart ? k_tripStart : k_tripEnd);
+	tmTls.SendMsg(&con, tripId);
 
 	PRINT_I("Trip %s.", isStart ? "started" : "ended");
 

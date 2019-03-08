@@ -55,6 +55,7 @@ static bool FindPath(const ComMsg::Point2D<double>& ori, const ComMsg::Point2D<d
 
 static bool SendQueryLog(const std::string& userId, const ComMsg::GetQuote& getQuote)
 {
+	using namespace EncFunc::PassengerMgm;
 	LOGI("Connecting to a Passenger Management...");
 
 	Connector cnt(&ocall_ride_share_cnt_mgr_get_pas_mgm);
@@ -67,13 +68,16 @@ static bool SendQueryLog(const std::string& userId, const ComMsg::GetQuote& getQ
 
 	std::shared_ptr<Decent::Ra::TlsConfig> pasMgmTlsCfg = std::make_shared<Decent::Ra::TlsConfig>(AppNames::sk_passengerMgm, gs_state, false);
 	Decent::Net::TlsCommLayer pasMgmTls(cnt.m_ptr, pasMgmTlsCfg, true);
+	
+	pasMgmTls.SendStruct(cnt.m_ptr, k_logQuery);
+	pasMgmTls.SendMsg(cnt.m_ptr, log.ToString());
 
-	return pasMgmTls.SendMsg(cnt.m_ptr, EncFunc::GetMsgString(EncFunc::PassengerMgm::k_logQuery)) &&
-		pasMgmTls.SendMsg(cnt.m_ptr, log.ToString());
+	return true;
 }
 
 static std::unique_ptr<ComMsg::Price> GetPriceFromBilling(const ComMsg::Path& pathMsg)
 {
+	using namespace EncFunc::Billing;
 	LOGI("Querying Billing Service for price...");
 	Connector cnt(&ocall_ride_share_cnt_mgr_get_billing);
 	if (!cnt.m_ptr)
@@ -86,10 +90,11 @@ static std::unique_ptr<ComMsg::Price> GetPriceFromBilling(const ComMsg::Path& pa
 
 	std::string msgBuf;
 	std::unique_ptr<ComMsg::Price> price;
-	if (!bsTls.SendMsg(cnt.m_ptr, EncFunc::GetMsgString(EncFunc::Billing::k_calPrice)) ||
-		!bsTls.SendMsg(cnt.m_ptr, pathMsg.ToString()) ||
-		!bsTls.ReceiveMsg(cnt.m_ptr, msgBuf) ||
-		!(price = ParseMsg<ComMsg::Price>(msgBuf)))
+
+	bsTls.SendStruct(cnt.m_ptr, k_calPrice);
+	bsTls.SendMsg(cnt.m_ptr, pathMsg.ToString());
+	bsTls.ReceiveMsg(cnt.m_ptr, msgBuf);
+	if (!(price = ParseMsg<ComMsg::Price>(msgBuf)))
 	{
 		return nullptr;
 	}
@@ -104,9 +109,9 @@ static void ProcessGetQuote(void* const connection, Decent::Net::TlsCommLayer& t
 	std::string msgBuf;
 
 	std::unique_ptr<ComMsg::GetQuote> getQuote;
-
-	if (!tls.ReceiveMsg(connection, msgBuf) ||
-		!(getQuote = ParseMsg<ComMsg::GetQuote>(msgBuf)))
+	
+	tls.ReceiveMsg(connection, msgBuf);
+	if (!(getQuote = ParseMsg<ComMsg::GetQuote>(msgBuf)))
 	{
 		return;
 	}
@@ -149,26 +154,28 @@ extern "C" int ecall_ride_share_tp_from_pas(void* const connection)
 	using namespace EncFunc::TripPlaner;
 	LOGI("Processing message from passenger...");
 
-	std::shared_ptr<RideShare::TlsConfig> tlsCfg = std::make_shared<RideShare::TlsConfig>(AppNames::sk_passengerMgm, gs_state, true);
-	Decent::Net::TlsCommLayer tls(connection, tlsCfg, true);
-
-	std::string msgBuf;
-	if (!tls.ReceiveMsg(connection, msgBuf) )
+	try
 	{
-		return false;
+		std::shared_ptr<RideShare::TlsConfig> tlsCfg = std::make_shared<RideShare::TlsConfig>(AppNames::sk_passengerMgm, gs_state, true);
+		Decent::Net::TlsCommLayer tls(connection, tlsCfg, true);
+
+		NumType funcNum;
+		tls.ReceiveStruct(connection, funcNum);
+
+		LOGI("Request Function: %d.", funcNum);
+
+		switch (funcNum)
+		{
+		case k_getQuote:
+			ProcessGetQuote(connection, tls);
+			break;
+		default:
+			break;
+		}
 	}
-
-	const NumType funcNum = EncFunc::GetNum<NumType>(msgBuf);
-
-	LOGI("Request Function: %d.", funcNum);
-
-	switch (funcNum)
+	catch (const std::exception& e)
 	{
-	case k_getQuote:
-		ProcessGetQuote(connection, tls);
-		break;
-	default:
-		break;
+		PRINT_W("Failed to processing message from passenger. Caught exception: %s", e.what());
 	}
 
 	return false;

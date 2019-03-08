@@ -57,12 +57,9 @@ static std::unique_ptr<ComMsg::RequestedPayment> GetPassengerPayment(const std::
 	Decent::Net::TlsCommLayer tls(cnt.m_ptr, tlsCfg, true);
 
 	std::string strBuf;
-	if (!tls.SendMsg(cnt.m_ptr, EncFunc::GetMsgString(k_getPayInfo)) ||
-		!tls.SendMsg(cnt.m_ptr, pasId) ||
-		!tls.ReceiveMsg(cnt.m_ptr, strBuf))
-	{
-		return nullptr;
-	}
+	tls.SendStruct(cnt.m_ptr, k_getPayInfo);
+	tls.SendMsg(cnt.m_ptr, pasId);
+	tls.ReceiveMsg(cnt.m_ptr, strBuf);
 
 	return ParseMsg<ComMsg::RequestedPayment>(strBuf);
 }
@@ -82,12 +79,9 @@ static std::unique_ptr<ComMsg::RequestedPayment> GetDriverPayment(const std::str
 	Decent::Net::TlsCommLayer tls(cnt.m_ptr, tlsCfg, true);
 
 	std::string strBuf;
-	if (!tls.SendMsg(cnt.m_ptr, EncFunc::GetMsgString(k_getPayInfo)) ||
-		!tls.SendMsg(cnt.m_ptr, driId) ||
-		!tls.ReceiveMsg(cnt.m_ptr, strBuf))
-	{
-		return nullptr;
-	}
+	tls.SendStruct(cnt.m_ptr, k_getPayInfo);
+	tls.SendMsg(cnt.m_ptr, driId);
+	tls.ReceiveMsg(cnt.m_ptr, strBuf);
 
 	return ParseMsg<ComMsg::RequestedPayment>(strBuf);
 }
@@ -99,9 +93,9 @@ static void ProcessPayment(void* const connection, Decent::Net::TlsCommLayer& tl
 	std::string msgBuf;
 
 	std::unique_ptr<ComMsg::FinalBill> bill;
-
-	if (!tls.ReceiveMsg(connection, msgBuf) ||
-		!(bill = ParseMsg<ComMsg::FinalBill>(msgBuf)))
+	
+	tls.ReceiveMsg(connection, msgBuf);
+	if (!(bill = ParseMsg<ComMsg::FinalBill>(msgBuf)))
 	{
 		return;
 	}
@@ -132,28 +126,30 @@ extern "C" int ecall_ride_share_pay_from_trip_matcher(void* const connection)
 	}
 
 	using namespace EncFunc::Payment;
-	LOGI("Processing message from trip matcher...");
+	LOGI("Processing message from Trip Matcher...");
 
-	std::shared_ptr<Decent::Ra::TlsConfig> tmTlsCfg = std::make_shared<Decent::Ra::TlsConfig>(AppNames::sk_tripMatcher, gs_state, true);
-	Decent::Net::TlsCommLayer tmTls(connection, tmTlsCfg, true);
-
-	std::string msgBuf;
-	if (!tmTls.ReceiveMsg(connection, msgBuf) )
+	try
 	{
-		return false;
+		std::shared_ptr<Decent::Ra::TlsConfig> tmTlsCfg = std::make_shared<Decent::Ra::TlsConfig>(AppNames::sk_tripMatcher, gs_state, true);
+		Decent::Net::TlsCommLayer tmTls(connection, tmTlsCfg, true);
+
+		NumType funcNum;
+		tmTls.ReceiveStruct(connection, funcNum);
+
+		LOGI("Request Function: %d.", funcNum);
+
+		switch (funcNum)
+		{
+		case k_procPayment:
+			ProcessPayment(connection, tmTls);
+			break;
+		default:
+			break;
+		}
 	}
-
-	const NumType funcNum = EncFunc::GetNum<NumType>(msgBuf);
-
-	LOGI("Request Function: %d.", funcNum);
-
-	switch (funcNum)
+	catch (const std::exception& e)
 	{
-	case k_procPayment:
-		ProcessPayment(connection, tmTls);
-		break;
-	default:
-		break;
+		PRINT_W("Failed to processing message from Trip Matcher. Caught exception: %s", e.what());
 	}
 
 	return false;

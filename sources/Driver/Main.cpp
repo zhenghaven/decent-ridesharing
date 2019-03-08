@@ -167,12 +167,9 @@ bool RegesterCert(Net::Connection& con, const ComMsg::DriContact& contact)
 
 	std::string msgBuf;
 
-	if (!pasTls.SendMsg(&con, EncFunc::GetMsgString(k_userReg)) ||
-		!pasTls.SendMsg(&con, regMsg.ToString()) ||
-		!pasTls.ReceiveMsg(&con, msgBuf))
-	{
-		return false;
-	}
+	pasTls.SendStruct(&con, k_userReg);
+	pasTls.SendMsg(&con, regMsg.ToString());
+	pasTls.ReceiveMsg(&con, msgBuf);
 
 	std::shared_ptr<ClientX509> cert = std::make_shared<ClientX509>(msgBuf);
 	if (!cert || !*cert)
@@ -196,12 +193,9 @@ std::unique_ptr<ComMsg::BestMatches> SendQuery(Net::Connection& con)
 	Decent::Net::TlsCommLayer tmTls(&con, tmTlsCfg, true);
 
 	std::string msgBuf;
-	if (!tmTls.SendMsg(&con, EncFunc::GetMsgString(k_findMatch)) ||
-		!tmTls.SendMsg(&con, DriLoc.ToString()) ||
-		!tmTls.ReceiveMsg(&con, msgBuf) )
-	{
-		return false;
-	}
+	tmTls.SendStruct(&con, k_findMatch);
+	tmTls.SendMsg(&con, DriLoc.ToString());
+	tmTls.ReceiveMsg(&con, msgBuf);
 
 	std::unique_ptr<ComMsg::BestMatches> matchesMsg = ParseMsg<ComMsg::BestMatches>(msgBuf);
 	if (!matchesMsg)
@@ -233,10 +227,11 @@ bool ConfirmMatch(Net::Connection& con, const ComMsg::DriContact& contact, const
 	
 	std::string msgBuf;
 	std::unique_ptr<ComMsg::PasContact> pasContact;
-	if (!tmTls.SendMsg(&con, EncFunc::GetMsgString(k_confirmMatch)) ||
-		!tmTls.SendMsg(&con, driSelection.ToString()) ||
-		!tmTls.ReceiveMsg(&con, msgBuf) ||
-		!(pasContact = ParseMsg<ComMsg::PasContact>(msgBuf)) )
+
+	tmTls.SendStruct(&con, k_confirmMatch);
+	tmTls.SendMsg(&con, driSelection.ToString());
+	tmTls.ReceiveMsg(&con, msgBuf);
+	if (!(pasContact = ParseMsg<ComMsg::PasContact>(msgBuf)) )
 	{
 		return false;
 	}
@@ -255,12 +250,8 @@ bool TripStartOrEnd(Net::Connection& con, const std::string& tripId, const bool 
 	std::shared_ptr<Decent::Ra::TlsConfig> tmTlsCfg = std::make_shared<Decent::Ra::TlsConfig>(AppNames::sk_tripMatcher, gs_state, false);
 	Decent::Net::TlsCommLayer tmTls(&con, tmTlsCfg, true);
 
-	if (!tmTls.SendMsg(&con, EncFunc::GetMsgString(isStart ? k_tripStart : k_tripEnd)) ||
-		!tmTls.SendMsg(&con, tripId))
-	{
-		LOGW("Failed to send trip %s.", isStart ? "start" : "end");
-		return false;
-	}
+	tmTls.SendStruct(&con, isStart ? k_tripStart : k_tripEnd);
+	tmTls.SendMsg(&con, tripId);
 
 	PRINT_I("Trip %s.", isStart ? "started" : "ended");
 

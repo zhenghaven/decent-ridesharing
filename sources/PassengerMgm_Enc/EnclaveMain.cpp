@@ -82,8 +82,8 @@ static void ProcessPasRegisterReq(void* const connection, Decent::Net::TlsCommLa
 	std::string msgBuf;
 
 	std::unique_ptr<ComMsg::PasReg> pasRegInfo;
-	if (!tls.ReceiveMsg(connection, msgBuf) ||
-		!(pasRegInfo = ParseMsg<ComMsg::PasReg>(msgBuf)))
+	tls.ReceiveMsg(connection, msgBuf);
+	if (!(pasRegInfo = ParseMsg<ComMsg::PasReg>(msgBuf)))
 	{
 		return;
 	}
@@ -148,26 +148,28 @@ extern "C" int ecall_ride_share_pm_from_pas(void* const connection)
 
 	LOGI("Processing message from passenger...");
 
-	std::shared_ptr<Decent::Ra::TlsConfig> pasTlsCfg = std::make_shared<Decent::Ra::TlsConfig>("NaN", gs_state, true);
-	Decent::Net::TlsCommLayer pasTls(connection, pasTlsCfg, false);
-
-	std::string msgBuf;
-	if (!pasTls.ReceiveMsg(connection, msgBuf) )
+	try
 	{
-		return false;
+		std::shared_ptr<Decent::Ra::TlsConfig> pasTlsCfg = std::make_shared<Decent::Ra::TlsConfig>("NaN", gs_state, true);
+		Decent::Net::TlsCommLayer pasTls(connection, pasTlsCfg, false);
+
+		NumType funcNum;
+		pasTls.ReceiveStruct(connection, funcNum);
+
+		LOGI("Request Function: %d.", funcNum);
+
+		switch (funcNum)
+		{
+		case k_userReg:
+			ProcessPasRegisterReq(connection, pasTls);
+			break;
+		default:
+			break;
+		}
 	}
-
-	const NumType funcNum = EncFunc::GetNum<EncFunc::PassengerMgm::NumType>(msgBuf);
-
-	LOGI("Request Function: %d.", funcNum);
-
-	switch (funcNum)
+	catch (const std::exception& e)
 	{
-	case k_userReg:
-		ProcessPasRegisterReq(connection, pasTls);
-		break;
-	default:
-		break;
+		PRINT_W("Failed to processing message from passenger. Caught exception: %s", e.what());
 	}
 
 	return false;
@@ -180,8 +182,8 @@ static void LogQuery(void* const connection, Decent::Net::TlsCommLayer& tls)
 	std::string msgBuf;
 
 	std::unique_ptr<ComMsg::PasQueryLog> queryLog;
-	if (!tls.ReceiveMsg(connection, msgBuf) ||
-		!(queryLog = ParseMsg<ComMsg::PasQueryLog>(msgBuf)))
+	tls.ReceiveMsg(connection, msgBuf);
+	if (!(queryLog = ParseMsg<ComMsg::PasQueryLog>(msgBuf)))
 	{
 		return;
 	}
@@ -206,26 +208,28 @@ extern "C" int ecall_ride_share_pm_from_trip_planner(void* const connection)
 
 	LOGI("Processing message from Trip Planner...");
 
-	std::shared_ptr<Decent::Ra::TlsConfig> tpTlsCfg = std::make_shared<Decent::Ra::TlsConfig>(AppNames::sk_tripPlanner, gs_state, true);
-	Decent::Net::TlsCommLayer tpTls(connection, tpTlsCfg, true);
-
-	std::string msgBuf;
-	if (!tpTls.ReceiveMsg(connection, msgBuf) )
+	try
 	{
-		return false;
+		std::shared_ptr<Decent::Ra::TlsConfig> tpTlsCfg = std::make_shared<Decent::Ra::TlsConfig>(AppNames::sk_tripPlanner, gs_state, true);
+		Decent::Net::TlsCommLayer tpTls(connection, tpTlsCfg, true);
+
+		NumType funcNum;
+		tpTls.ReceiveStruct(connection, funcNum);
+
+		LOGI("Request Function: %d.", funcNum);
+
+		switch (funcNum)
+		{
+		case k_logQuery:
+			LogQuery(connection, tpTls);
+			break;
+		default:
+			break;
+		}
 	}
-
-	const NumType funcNum = EncFunc::GetNum<NumType>(msgBuf);
-
-	LOGI("Request Function: %d.", funcNum);
-
-	switch (funcNum)
+	catch (const std::exception& e)
 	{
-	case k_logQuery:
-		LogQuery(connection, tpTls);
-		break;
-	default:
-		break;
+		PRINT_W("Failed to processing message from Trip Planner. Caught exception: %s", e.what());
 	}
 
 	return false;
@@ -236,10 +240,7 @@ static void RequestPaymentInfo(void* const connection, Decent::Net::TlsCommLayer
 	LOGI("Processing payment info request...");
 
 	std::string pasId;
-	if (!tls.ReceiveMsg(connection, pasId))
-	{
-		return;
-	}
+	tls.ReceiveMsg(connection, pasId);
 
 	std::string pasPayInfo;
 	std::string selfPayInfo = OperatorPayment::GetPaymentInfo();
@@ -269,29 +270,32 @@ extern "C" int ecall_ride_share_pm_from_payment(void* const connection)
 
 	using namespace EncFunc::PassengerMgm;
 
-	LOGI("Processing message from payment services...");
+	LOGI("Processing message from Payment Services...");
 
-	std::shared_ptr<Decent::Ra::TlsConfig> payTlsCfg = std::make_shared<Decent::Ra::TlsConfig>(AppNames::sk_payment, gs_state, true);
-	Decent::Net::TlsCommLayer payTls(connection, payTlsCfg, true);
-
-	std::string msgBuf;
-	if (!payTls.ReceiveMsg(connection, msgBuf) )
+	try
 	{
-		return false;
+		std::shared_ptr<Decent::Ra::TlsConfig> payTlsCfg = std::make_shared<Decent::Ra::TlsConfig>(AppNames::sk_payment, gs_state, true);
+		Decent::Net::TlsCommLayer payTls(connection, payTlsCfg, true);
+
+		NumType funcNum;
+		payTls.ReceiveStruct(connection, funcNum);
+
+		LOGI("Request Function: %d.", funcNum);
+
+		switch (funcNum)
+		{
+		case k_getPayInfo:
+			RequestPaymentInfo(connection, payTls);
+			break;
+		default:
+			break;
+		}
 	}
-
-	const NumType funcNum = EncFunc::GetNum<NumType>(msgBuf);
-
-	LOGI("Request Function: %d.", funcNum);
-
-	switch (funcNum)
+	catch (const std::exception& e)
 	{
-	case k_getPayInfo:
-		RequestPaymentInfo(connection, payTls);
-		break;
-	default:
-		break;
+		PRINT_W("Failed to processing message from Payment Services. Caught exception: %s", e.what());
 	}
+	
 
 	return false;
 }

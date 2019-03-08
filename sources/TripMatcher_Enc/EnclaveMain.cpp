@@ -245,8 +245,9 @@ static void ProcessPasConfirmQuoteReq(void* const connection, Decent::Net::TlsCo
 	std::unique_ptr<ComMsg::ConfirmQuote> confirmQuote;
 	std::unique_ptr<ComMsg::SignedQuote> signedQuote;
 	std::unique_ptr<ComMsg::Quote> quote;
-	if (!tls.ReceiveMsg(connection, msgBuf) ||
-		!(confirmQuote = ParseMsg<ComMsg::ConfirmQuote>(msgBuf)) ||
+
+	tls.ReceiveMsg(connection, msgBuf);
+	if (!(confirmQuote = ParseMsg<ComMsg::ConfirmQuote>(msgBuf)) ||
 		!(signedQuote = ParseSignedQuote(confirmQuote->GetSignQuote(), gs_state)) ||
 		!(quote = ParseMsg<ComMsg::Quote>(signedQuote->GetQuote())) ||
 		quote->GetPasId() != pasId )
@@ -304,10 +305,7 @@ static void TripStart(void* const connection, Decent::Net::TlsCommLayer& tls, co
 
 	std::string tripId;
 
-	if (!tls.ReceiveMsg(connection, tripId))
-	{
-		return;
-	}
+	tls.ReceiveMsg(connection, tripId);
 
 	std::shared_ptr<MatchedItem> item;
 	{
@@ -346,11 +344,8 @@ static void ProcessPayment(const std::shared_ptr<MatchedItem>& item)
 	std::shared_ptr<Decent::Ra::TlsConfig> tlsCfg = std::make_shared<Decent::Ra::TlsConfig>(AppNames::sk_payment, gs_state, false);
 	Decent::Net::TlsCommLayer tls(cnt.m_ptr, tlsCfg, true);
 
-	if (!tls.SendMsg(cnt.m_ptr, EncFunc::GetMsgString(k_procPayment)) ||
-		!tls.SendMsg(cnt.m_ptr, bill.ToString()) )
-	{
-		return;
-	}
+	tls.SendStruct(cnt.m_ptr, k_procPayment);
+	tls.SendMsg(cnt.m_ptr, bill.ToString());
 }
 
 static void TripEnd(void* const connection, Decent::Net::TlsCommLayer& tls, const bool isPassenger)
@@ -359,10 +354,7 @@ static void TripEnd(void* const connection, Decent::Net::TlsCommLayer& tls, cons
 
 	std::string tripId;
 
-	if (!tls.ReceiveMsg(connection, tripId))
-	{
-		return;
-	}
+	tls.ReceiveMsg(connection, tripId);
 
 	std::shared_ptr<MatchedItem> item;
 	{
@@ -427,32 +419,34 @@ extern "C" int ecall_ride_share_tm_from_pas(void* const connection)
 
 	LOGI("Processing message from passenger...");
 
-	std::shared_ptr<RideShare::TlsConfig> tlsCfg = std::make_shared<RideShare::TlsConfig>(AppNames::sk_passengerMgm, gs_state, true);
-	Decent::Net::TlsCommLayer pasTls(connection, tlsCfg, true);
-
-	std::string msgBuf;
-	if (!pasTls.ReceiveMsg(connection, msgBuf)  )
+	try
 	{
-		return false;
+		std::shared_ptr<RideShare::TlsConfig> tlsCfg = std::make_shared<RideShare::TlsConfig>(AppNames::sk_passengerMgm, gs_state, true);
+		Decent::Net::TlsCommLayer pasTls(connection, tlsCfg, true);
+
+		NumType funcNum;
+		pasTls.ReceiveStruct(connection, funcNum);
+
+		LOGI("Request Function: %d.", funcNum);
+
+		switch (funcNum)
+		{
+		case k_confirmQuote:
+			ProcessPasConfirmQuoteReq(connection, pasTls);
+			break;
+		case k_tripStart:
+			TripStart(connection, pasTls, true);
+			break;
+		case k_tripEnd:
+			TripEnd(connection, pasTls, true);
+			break;
+		default:
+			break;
+		}
 	}
-
-	const NumType funcNum = EncFunc::GetNum<EncFunc::PassengerMgm::NumType>(msgBuf);
-
-	LOGI("Request Function: %d.", funcNum);
-
-	switch (funcNum)
+	catch (const std::exception& e)
 	{
-	case k_confirmQuote:
-		ProcessPasConfirmQuoteReq(connection, pasTls);
-		break;
-	case k_tripStart:
-		TripStart(connection, pasTls, true);
-		break;
-	case k_tripEnd:
-		TripEnd(connection, pasTls, true);
-		break;
-	default:
-		break;
+		PRINT_W("Failed to processing message from passenger. Caught exception: %s", e.what());
 	}
 
 	return false;
@@ -554,8 +548,10 @@ static bool SendQueryLog(const std::string& userId, const ComMsg::Point2D<double
 	std::shared_ptr<Decent::Ra::TlsConfig> tlsCfg = std::make_shared<Decent::Ra::TlsConfig>(AppNames::sk_driverMgm, gs_state, false);
 	Decent::Net::TlsCommLayer tls(cnt.m_ptr, tlsCfg, true);
 
-	return tls.SendMsg(cnt.m_ptr, EncFunc::GetMsgString(k_logQuery)) &&
-		tls.SendMsg(cnt.m_ptr, log.ToString());
+	tls.SendStruct(cnt.m_ptr, k_logQuery);
+	tls.SendMsg(cnt.m_ptr, log.ToString());
+
+	return true;
 }
 
 static void DriverFindMatchReq(void* const connection, Decent::Net::TlsCommLayer& tls)
@@ -565,8 +561,8 @@ static void DriverFindMatchReq(void* const connection, Decent::Net::TlsCommLayer
 	std::string msgBuf;
 
 	std::unique_ptr<ComMsg::DriverLoc> driLoc;
-	if (!tls.ReceiveMsg(connection, msgBuf) ||
-		!(driLoc = ParseMsg<ComMsg::DriverLoc>(msgBuf)))
+	tls.ReceiveMsg(connection, msgBuf);
+	if (!(driLoc = ParseMsg<ComMsg::DriverLoc>(msgBuf)))
 	{
 		return;
 	}
@@ -595,8 +591,8 @@ static void DriverConfirmMatchReq(void* const connection, Decent::Net::TlsCommLa
 	std::string msgBuf;
 
 	std::unique_ptr<ComMsg::DriSelection> selection;
-	if (!tls.ReceiveMsg(connection, msgBuf) ||
-		!(selection = ParseMsg<ComMsg::DriSelection>(msgBuf)))
+	tls.ReceiveMsg(connection, msgBuf);
+	if (!(selection = ParseMsg<ComMsg::DriSelection>(msgBuf)))
 	{
 		return;
 	}
@@ -652,35 +648,37 @@ extern "C" int ecall_ride_share_tm_from_dri(void* const connection)
 
 	LOGI("Processing message from driver...");
 
-	std::shared_ptr<RideShare::TlsConfig> tlsCfg = std::make_shared<RideShare::TlsConfig>(AppNames::sk_driverMgm, gs_state, true);
-	Decent::Net::TlsCommLayer driTls(connection, tlsCfg, true);
-
-	std::string msgBuf;
-	if (!driTls.ReceiveMsg(connection, msgBuf) )
+	try
 	{
-		return false;
+		std::shared_ptr<RideShare::TlsConfig> tlsCfg = std::make_shared<RideShare::TlsConfig>(AppNames::sk_driverMgm, gs_state, true);
+		Decent::Net::TlsCommLayer driTls(connection, tlsCfg, true);
+
+		NumType funcNum;
+		driTls.ReceiveStruct(connection, funcNum);
+
+		LOGI("Request Function: %d.", funcNum);
+
+		switch (funcNum)
+		{
+		case k_findMatch:
+			DriverFindMatchReq(connection, driTls);
+			break;
+		case k_confirmMatch:
+			DriverConfirmMatchReq(connection, driTls);
+			break;
+		case k_tripStart:
+			TripStart(connection, driTls, false);
+			break;
+		case k_tripEnd:
+			TripEnd(connection, driTls, false);
+			break;
+		default:
+			break;
+		}
 	}
-
-	const NumType funcNum = EncFunc::GetNum<NumType>(msgBuf);
-
-	LOGI("Request Function: %d.", funcNum);
-
-	switch (funcNum)
+	catch (const std::exception& e)
 	{
-	case k_findMatch:
-		DriverFindMatchReq(connection, driTls);
-		break;
-	case k_confirmMatch:
-		DriverConfirmMatchReq(connection, driTls);
-		break;
-	case k_tripStart:
-		TripStart(connection, driTls, false);
-		break;
-	case k_tripEnd:
-		TripEnd(connection, driTls, false);
-		break;
-	default:
-		break;
+		PRINT_W("Failed to processing message from driver. Caught exception: %s", e.what());
 	}
 
 	return false;
