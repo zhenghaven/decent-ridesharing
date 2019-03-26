@@ -3,7 +3,6 @@
 #include <iostream>
 
 #include <tclap/CmdLine.h>
-#include <boost/asio/ip/address_v4.hpp>
 #include <sgx_quote.h>
 
 #include <DecentApi/CommonApp/Common.h>
@@ -67,7 +66,7 @@ int main(int argc, char ** argv)
 	const ConfigItem& paymentItem = configManager.GetItem(AppNames::sk_payment);
 
 
-	uint32_t serverIp = boost::asio::ip::address_v4::from_string(decentServerItem.GetAddr()).to_uint();
+	uint32_t serverIp = Net::TCPConnection::GetIpAddressFromStr(decentServerItem.GetAddr());
 	std::unique_ptr<Net::Connection> serverCon;
 
 	if (isSendWlArg.getValue())
@@ -94,8 +93,7 @@ int main(int argc, char ** argv)
 
 	Net::SmartServer smartServer;
 
-	uint32_t paymentIp = boost::asio::ip::address_v4::from_string(paymentItem.GetAddr()).to_uint();
-	std::unique_ptr<Net::Server> server(std::make_unique<Net::TCPServer>(paymentIp, paymentItem.GetPort()));
+	std::unique_ptr<Net::Server> server(std::make_unique<Net::TCPServer>(paymentItem.GetAddr(), paymentItem.GetPort()));
 	
 	smartServer.AddServer(server, enclave);
 	smartServer.RunUtilUserTerminate();

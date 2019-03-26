@@ -10,7 +10,7 @@ enclave
 
 	untrusted
 	{
-		void ocall_ride_share_cnt_mgr_get_dri_mgm([out] void** out_cnt_ptr);
-		void ocall_ride_share_cnt_mgr_get_payment([out] void** out_cnt_ptr);
+		void* ocall_ride_share_cnt_mgr_get_dri_mgm();
+		void* ocall_ride_share_cnt_mgr_get_payment();
 	};
 };

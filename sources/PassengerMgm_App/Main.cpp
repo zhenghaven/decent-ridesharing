@@ -3,7 +3,6 @@
 #include <iostream>
 
 #include <tclap/CmdLine.h>
-#include <boost/asio/ip/address_v4.hpp>
 #include <sgx_quote.h>
 
 #include <DecentApi/CommonApp/Common.h>
@@ -66,7 +65,7 @@ int main(int argc, char ** argv)
 	const ConfigItem& decentServerItem = configManager.GetItem(Ra::WhiteList::sk_nameDecentServer);
 	const ConfigItem& pasMgmItem = configManager.GetItem(AppNames::sk_passengerMgm);
 
-	uint32_t serverIp = boost::asio::ip::address_v4::from_string(decentServerItem.GetAddr()).to_uint();
+	uint32_t serverIp = Net::TCPConnection::GetIpAddressFromStr(decentServerItem.GetAddr());
 	std::unique_ptr<Net::Connection> serverCon;
 
 	if (isSendWlArg.getValue())
@@ -93,8 +92,7 @@ int main(int argc, char ** argv)
 
 	Net::SmartServer smartServer;
 
-	uint32_t pasMgmIp = boost::asio::ip::address_v4::from_string(pasMgmItem.GetAddr()).to_uint();
-	std::unique_ptr<Net::Server> server(std::make_unique<Net::TCPServer>(pasMgmIp, pasMgmItem.GetPort()));
+	std::unique_ptr<Net::Server> server(std::make_unique<Net::TCPServer>(pasMgmItem.GetAddr(), pasMgmItem.GetPort()));
 
 	smartServer.AddServer(server, enclave);
 	smartServer.RunUtilUserTerminate();

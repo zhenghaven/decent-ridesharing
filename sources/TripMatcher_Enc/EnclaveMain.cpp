@@ -1,5 +1,4 @@
-#include <cmath>
-
+#include <map>
 #include <memory>
 #include <mutex>
 #include <algorithm>
@@ -7,32 +6,33 @@
 
 #include <DecentApi/Common/Common.h>
 #include <DecentApi/Common/make_unique.h>
-#include <DecentApi/Common/Ra/TlsConfig.h>
+#include <DecentApi/Common/Ra/ClientX509.h>
+#include <DecentApi/Common/Ra/TlsConfigClient.h>
+#include <DecentApi/Common/Ra/TlsConfigWithName.h>
 #include <DecentApi/Common/Ra/KeyContainer.h>
 #include <DecentApi/Common/Ra/CertContainer.h>
 #include <DecentApi/Common/Net/TlsCommLayer.h>
 #include <DecentApi/Common/Tools/JsonTools.h>
-#include <DecentApi/Common/MbedTls/MbedTlsHelpers.h>
+#include <DecentApi/Common/MbedTls/Hasher.h>
+#include <DecentApi/CommonEnclave/SGX/OcallConnector.h>
 #include <DecentApi/DecentAppEnclave/AppStatesSingleton.h>
 
 #include <rapidjson/document.h>
 #include <cppcodec/base64_default_rfc4648.hpp>
 
-#include "../Common/Crypto.h"
-#include "../Common/TlsConfig.h"
 #include "../Common/AppNames.h"
 #include "../Common/RideSharingFuncNums.h"
 #include "../Common/RideSharingMessages.h"
 #include "../Common/UnexpectedErrorException.h"
 
 #include "../Common_Enc/OperatorPayment.h"
-#include "../Common_Enc/Connector.h"
 
 #include "Enclave_t.h"
 
 using namespace RideShare;
 using namespace Decent;
 using namespace Decent::Ra;
+using namespace Decent::Net;
 using namespace Decent::Tools;
 
 namespace
@@ -107,39 +107,25 @@ namespace
 	template<typename MsgType>
 	static std::unique_ptr<MsgType> ParseMsg(const std::string& msgStr)
 	{
-		try
-		{
-			rapidjson::Document json;
-			return Decent::Tools::ParseStr2Json(json, msgStr) ? 
-				Decent::Tools::make_unique<MsgType>(json) :
-				nullptr;
-		}
-		catch (const std::exception&)
-		{
-			return nullptr;
-		}
+		rapidjson::Document json;
+		Decent::Tools::ParseStr2Json(json, msgStr);
+		return Decent::Tools::make_unique<MsgType>(json);
 	}
-}
-
-static std::unique_ptr<ComMsg::SignedQuote> ParseSignedQuote(const std::string& msg, Decent::Ra::States& state)
-{
-	try
+	
+	static std::unique_ptr<ComMsg::SignedQuote> ParseSignedQuote(const std::string& msg, Decent::Ra::States& state)
 	{
 		JsonDoc json;
-		return ParseStr2Json(json, msg) ? 
-			Decent::Tools::make_unique<ComMsg::SignedQuote>(ComMsg::SignedQuote::ParseSignedQuote(json, state, AppNames::sk_tripPlanner)) :
-			nullptr;
-	}
-	catch (const std::exception&)
-	{
-		return nullptr;
+		ParseStr2Json(json, msg);
+		return Decent::Tools::make_unique<ComMsg::SignedQuote>(ComMsg::SignedQuote::ParseSignedQuote(json, state, AppNames::sk_tripPlanner));
 	}
 }
 
 static std::string ConstructTripId(const std::string& signedQuote)
 {
+	using namespace Decent::MbedTlsObj;
+
 	General256Hash hash;
-	MbedTlsHelper::CalcHashSha256(signedQuote, hash);
+	Hasher::Calc<HashType::SHA256>(signedQuote, hash);
 
 	return cppcodec::base64_rfc4648::encode(hash);
 }
@@ -242,15 +228,12 @@ static void ProcessPasConfirmQuoteReq(void* const connection, Decent::Net::TlsCo
 
 	std::string msgBuf;
 
-	std::unique_ptr<ComMsg::ConfirmQuote> confirmQuote;
-	std::unique_ptr<ComMsg::SignedQuote> signedQuote;
-	std::unique_ptr<ComMsg::Quote> quote;
-
 	tls.ReceiveMsg(connection, msgBuf);
-	if (!(confirmQuote = ParseMsg<ComMsg::ConfirmQuote>(msgBuf)) ||
-		!(signedQuote = ParseSignedQuote(confirmQuote->GetSignQuote(), gs_state)) ||
-		!(quote = ParseMsg<ComMsg::Quote>(signedQuote->GetQuote())) ||
-		quote->GetPasId() != pasId )
+	std::unique_ptr<ComMsg::ConfirmQuote> confirmQuote = ParseMsg<ComMsg::ConfirmQuote>(msgBuf);
+	std::unique_ptr<ComMsg::SignedQuote> signedQuote = ParseSignedQuote(confirmQuote->GetSignQuote(), gs_state);
+	std::unique_ptr<ComMsg::Quote> quote = ParseMsg<ComMsg::Quote>(signedQuote->GetQuote());
+
+	if (quote->GetPasId() != pasId)
 	{
 		return;
 	}
@@ -335,17 +318,13 @@ static void ProcessPayment(const std::shared_ptr<MatchedItem>& item)
 
 	LOGI("Sending final bill to payment services...");
 
-	Connector cnt(&ocall_ride_share_cnt_mgr_get_payment);
-	if (!cnt.m_ptr)
-	{
-		return;
-	}
+	OcallConnector cnt(&ocall_ride_share_cnt_mgr_get_payment);
 
-	std::shared_ptr<Decent::Ra::TlsConfig> tlsCfg = std::make_shared<Decent::Ra::TlsConfig>(AppNames::sk_payment, gs_state, false);
-	Decent::Net::TlsCommLayer tls(cnt.m_ptr, tlsCfg, true);
+	std::shared_ptr<TlsConfigWithName> tlsCfg = std::make_shared<TlsConfigWithName>(gs_state, TlsConfig::Mode::ClientHasCert, AppNames::sk_payment);
+	Decent::Net::TlsCommLayer tls(cnt.Get(), tlsCfg, true);
 
-	tls.SendStruct(cnt.m_ptr, k_procPayment);
-	tls.SendMsg(cnt.m_ptr, bill.ToString());
+	tls.SendStruct(cnt.Get(), k_procPayment);
+	tls.SendMsg(cnt.Get(), bill.ToString());
 }
 
 static void TripEnd(void* const connection, Decent::Net::TlsCommLayer& tls, const bool isPassenger)
@@ -406,50 +385,6 @@ static void TripEnd(void* const connection, Decent::Net::TlsCommLayer& tls, cons
 		
 		ProcessPayment(item); //Caution: m_quote & m_driId in item become invalid after this call!
 	}
-}
-
-extern "C" int ecall_ride_share_tm_from_pas(void* const connection)
-{
-	if (!OperatorPayment::IsPaymentInfoValid())
-	{
-		return false;
-	}
-
-	using namespace EncFunc::TripMatcher;
-
-	LOGI("Processing message from passenger...");
-
-	try
-	{
-		std::shared_ptr<RideShare::TlsConfig> tlsCfg = std::make_shared<RideShare::TlsConfig>(AppNames::sk_passengerMgm, gs_state, true);
-		Decent::Net::TlsCommLayer pasTls(connection, tlsCfg, true);
-
-		NumType funcNum;
-		pasTls.ReceiveStruct(connection, funcNum);
-
-		LOGI("Request Function: %d.", funcNum);
-
-		switch (funcNum)
-		{
-		case k_confirmQuote:
-			ProcessPasConfirmQuoteReq(connection, pasTls);
-			break;
-		case k_tripStart:
-			TripStart(connection, pasTls, true);
-			break;
-		case k_tripEnd:
-			TripEnd(connection, pasTls, true);
-			break;
-		default:
-			break;
-		}
-	}
-	catch (const std::exception& e)
-	{
-		PRINT_W("Failed to processing message from passenger. Caught exception: %s", e.what());
-	}
-
-	return false;
 }
 
 static std::vector<std::pair<ConfirmedQuoteItem*, double> > FindMatchInitial(const ComMsg::Point2D<double>& driLoc)
@@ -537,19 +472,15 @@ static bool SendQueryLog(const std::string& userId, const ComMsg::Point2D<double
 
 	LOGI("Sending query log to a driver management...");
 
-	Connector cnt(&ocall_ride_share_cnt_mgr_get_dri_mgm);
-	if (!cnt.m_ptr)
-	{
-		return false;
-	}
+	OcallConnector cnt(&ocall_ride_share_cnt_mgr_get_dri_mgm);
 
 	ComMsg::DriQueryLog log(userId, loc);
 
-	std::shared_ptr<Decent::Ra::TlsConfig> tlsCfg = std::make_shared<Decent::Ra::TlsConfig>(AppNames::sk_driverMgm, gs_state, false);
-	Decent::Net::TlsCommLayer tls(cnt.m_ptr, tlsCfg, true);
+	std::shared_ptr<TlsConfigWithName> tlsCfg = std::make_shared<TlsConfigWithName>(gs_state, TlsConfig::Mode::ClientHasCert, AppNames::sk_driverMgm);
+	Decent::Net::TlsCommLayer tls(cnt.Get(), tlsCfg, true);
 
-	tls.SendStruct(cnt.m_ptr, k_logQuery);
-	tls.SendMsg(cnt.m_ptr, log.ToString());
+	tls.SendStruct(cnt.Get(), k_logQuery);
+	tls.SendMsg(cnt.Get(), log.ToString());
 
 	return true;
 }
@@ -560,12 +491,8 @@ static void DriverFindMatchReq(void* const connection, Decent::Net::TlsCommLayer
 
 	std::string msgBuf;
 
-	std::unique_ptr<ComMsg::DriverLoc> driLoc;
 	tls.ReceiveMsg(connection, msgBuf);
-	if (!(driLoc = ParseMsg<ComMsg::DriverLoc>(msgBuf)))
-	{
-		return;
-	}
+	std::unique_ptr<ComMsg::DriverLoc> driLoc = ParseMsg<ComMsg::DriverLoc>(msgBuf);
 
 	const std::string driId = tls.GetPublicKeyPem();
 	if (driId.size() == 0 ||
@@ -590,12 +517,8 @@ static void DriverConfirmMatchReq(void* const connection, Decent::Net::TlsCommLa
 
 	std::string msgBuf;
 
-	std::unique_ptr<ComMsg::DriSelection> selection;
 	tls.ReceiveMsg(connection, msgBuf);
-	if (!(selection = ParseMsg<ComMsg::DriSelection>(msgBuf)))
-	{
-		return;
-	}
+	std::unique_ptr<ComMsg::DriSelection> selection = ParseMsg<ComMsg::DriSelection>(msgBuf);
 
 	//verify pas contact.
 	if (!VerifyContactHash(tls.GetPeerCertPem(), selection->GetContact().CalcHash()))
@@ -637,6 +560,48 @@ static void DriverConfirmMatchReq(void* const connection, Decent::Net::TlsCommLa
 	tls.SendMsg(connection, pasContact->ToString());
 }
 
+extern "C" int ecall_ride_share_tm_from_pas(void* const connection)
+{
+	if (!OperatorPayment::IsPaymentInfoValid())
+	{
+		return false;
+	}
+
+	using namespace EncFunc::TripMatcher;
+
+	LOGI("Processing message from passenger...");
+
+	try
+	{
+		std::shared_ptr<TlsConfigClient> tlsCfg = std::make_shared<TlsConfigClient>(gs_state, TlsConfig::Mode::ServerVerifyPeer, AppNames::sk_passengerMgm);
+		TlsCommLayer tls(connection, tlsCfg, true);
+
+		NumType funcNum;
+		tls.ReceiveStruct(connection, funcNum);
+
+		switch (funcNum)
+		{
+		case k_confirmQuote:
+			ProcessPasConfirmQuoteReq(connection, tls);
+			break;
+		case k_tripStart:
+			TripStart(connection, tls, true);
+			break;
+		case k_tripEnd:
+			TripEnd(connection, tls, true);
+			break;
+		default:
+			break;
+		}
+	}
+	catch (const std::exception& e)
+	{
+		PRINT_W("Failed to processing message from passenger. Caught exception: %s", e.what());
+	}
+
+	return false;
+}
+
 extern "C" int ecall_ride_share_tm_from_dri(void* const connection)
 {
 	if (!OperatorPayment::IsPaymentInfoValid())
@@ -650,27 +615,25 @@ extern "C" int ecall_ride_share_tm_from_dri(void* const connection)
 
 	try
 	{
-		std::shared_ptr<RideShare::TlsConfig> tlsCfg = std::make_shared<RideShare::TlsConfig>(AppNames::sk_driverMgm, gs_state, true);
-		Decent::Net::TlsCommLayer driTls(connection, tlsCfg, true);
+		std::shared_ptr<TlsConfigClient> tlsCfg = std::make_shared<TlsConfigClient>(gs_state, TlsConfig::Mode::ServerVerifyPeer, AppNames::sk_driverMgm);
+		TlsCommLayer tls(connection, tlsCfg, true);
 
 		NumType funcNum;
-		driTls.ReceiveStruct(connection, funcNum);
-
-		LOGI("Request Function: %d.", funcNum);
+		tls.ReceiveStruct(connection, funcNum);
 
 		switch (funcNum)
 		{
 		case k_findMatch:
-			DriverFindMatchReq(connection, driTls);
+			DriverFindMatchReq(connection, tls);
 			break;
 		case k_confirmMatch:
-			DriverConfirmMatchReq(connection, driTls);
+			DriverConfirmMatchReq(connection, tls);
 			break;
 		case k_tripStart:
-			TripStart(connection, driTls, false);
+			TripStart(connection, tls, false);
 			break;
 		case k_tripEnd:
-			TripEnd(connection, driTls, false);
+			TripEnd(connection, tls, false);
 			break;
 		default:
 			break;

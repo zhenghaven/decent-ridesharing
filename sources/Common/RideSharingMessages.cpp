@@ -12,9 +12,9 @@
 #include <DecentApi/Common/Common.h>
 #include <DecentApi/Common/Tools/JsonTools.h>
 #include <DecentApi/Common/Tools/DataCoding.h>
-#include <DecentApi/Common/MbedTls/MbedTlsHelpers.h>
+#include <DecentApi/Common/MbedTls/Hasher.h>
 #include <DecentApi/Common/Ra/Crypto.h>
-#include <DecentApi/Common/Ra/TlsConfig.h>
+#include <DecentApi/Common/Ra/TlsConfigWithName.h>
 #include <DecentApi/Common/Ra/States.h>
 #include <DecentApi/Common/Ra/KeyContainer.h>
 #include <DecentApi/Common/Ra/CertContainer.h>
@@ -28,8 +28,6 @@ using namespace Decent::Ra;
 
 namespace
 {
-	static constexpr int MBEDTLS_SUCCESS_RET = 0;
-
 	template<typename T>
 	std::vector<T> ParseArray(const JsonValue & json)
 	{
@@ -142,6 +140,8 @@ constexpr char const SignedQuote::sk_labelCert[];
 
 SignedQuote SignedQuote::SignQuote(const Quote& quote, Decent::Ra::States& state)
 {
+	using namespace Decent::MbedTlsObj;
+
 	const std::shared_ptr<const Decent::MbedTlsObj::ECKeyPair> prvKeyPtr = state.GetKeyContainer().GetSignKeyPair();
 	const Decent::MbedTlsObj::ECKeyPair& prvKey = *prvKeyPtr;
 	const std::shared_ptr<const Decent::MbedTlsObj::X509Cert> certPtr = state.GetCertContainer().GetCert();
@@ -150,9 +150,8 @@ SignedQuote SignedQuote::SignQuote(const Quote& quote, Decent::Ra::States& state
 	std::string quoteStr = quote.ToString();
 	General256Hash hash;
 	general_secp256r1_signature_t sign;
-	if (!cert ||
-		!MbedTlsHelper::CalcHashSha256(quoteStr, hash) ||
-		!prvKey ||
+	Hasher::Calc<HashType::SHA256>(quoteStr, hash);
+	if (!prvKey ||
 		!prvKey.EcdsaSign(sign, hash, mbedtls_md_info_from_type(mbedtls_md_type_t::MBEDTLS_MD_SHA256)))
 	{
 		throw MessageException("Failed to sign the quote!");
@@ -166,6 +165,8 @@ SignedQuote SignedQuote::SignQuote(const Quote& quote, Decent::Ra::States& state
 
 SignedQuote SignedQuote::ParseSignedQuote(const JsonValue& json, Decent::Ra::States& state, const std::string& appName)
 {
+	using namespace Decent::MbedTlsObj;
+
 	if (!json.JSON_HAS_MEMBER(SignedQuote::sk_labelQuote) ||
 		!json.JSON_HAS_MEMBER(SignedQuote::sk_labelSignature) ||
 		!json.JSON_HAS_MEMBER(SignedQuote::sk_labelCert))
@@ -178,12 +179,12 @@ SignedQuote SignedQuote::ParseSignedQuote(const JsonValue& json, Decent::Ra::Sta
 	std::string certPem = ParseValue<std::string>(json[SignedQuote::sk_labelCert]);
 
 	AppX509 cert(certPem);
-	TlsConfig tlsCfg(appName, state, true);
+	TlsConfigWithName tlsCfg(state, TlsConfigWithName::Mode::ServerVerifyPeer, appName);
 
 	uint32_t flag;
 	if (!cert ||
 		mbedtls_x509_crt_verify_with_profile(cert.Get(), nullptr, nullptr,
-		&mbedtls_x509_crt_profile_suiteb, nullptr, &flag, &TlsConfig::CertVerifyCallBack, &tlsCfg) != MBEDTLS_SUCCESS_RET ||
+		&mbedtls_x509_crt_profile_suiteb, nullptr, &flag, &TlsConfigWithName::CertVerifyCallBack, &tlsCfg) != MBEDTLS_SUCCESS_RET ||
 		flag != MBEDTLS_SUCCESS_RET)
 	{
 		throw MessageParseException();
@@ -193,8 +194,8 @@ SignedQuote SignedQuote::ParseSignedQuote(const JsonValue& json, Decent::Ra::Sta
 	Tools::DeserializeStruct(sign, signStr);
 	General256Hash hash;
 
-	if (!MbedTlsHelper::CalcHashSha256(quoteStr, hash) ||
-		!cert.GetEcPublicKey() ||
+	Hasher::Calc<HashType::SHA256>(quoteStr, hash);
+	if (!cert.GetEcPublicKey() ||
 		!cert.GetEcPublicKey().VerifySign(sign, hash.data(), hash.size()))
 	{
 		throw MessageParseException();
@@ -225,18 +226,10 @@ JsonValue & PasContact::ToJson(JsonDoc & doc) const
 
 Decent::General256Hash PasContact::CalcHash() const
 {
-	using namespace Decent::MbedTlsHelper;
+	using namespace Decent::MbedTlsObj;
 	Decent::General256Hash hash;
 
-	HashDataList dataList =
-	{
-		{ sk_labelName, sizeof(sk_labelName) },
-		{ m_name.data(), m_name.size() },
-		{ sk_labelPhone, sizeof(sk_labelPhone) },
-		{ m_phone.data(), m_phone.size() },
-	};
-
-	CalcHashSha256(hashListMode, dataList, hash);
+	Hasher::ArrayBatchedCalc<HashType::SHA256>(hash, sk_labelName, m_name, sk_labelPhone, m_phone);
 
 	return std::move(hash);
 }
@@ -256,20 +249,10 @@ JsonValue & DriContact::ToJson(JsonDoc & doc) const
 
 Decent::General256Hash DriContact::CalcHash() const
 {
-	using namespace Decent::MbedTlsHelper;
+	using namespace Decent::MbedTlsObj;
 	Decent::General256Hash hash;
 
-	HashDataList dataList =
-	{
-		{sk_labelName, sizeof(sk_labelName)},
-		{m_name.data(), m_name.size()},
-		{ sk_labelPhone, sizeof(sk_labelPhone) },
-		{ m_phone.data(), m_phone.size()},
-		{ sk_labelLicPlate, sizeof(sk_labelLicPlate) },
-		{ m_licPlate.data(), m_licPlate.size()},
-	};
-
-	CalcHashSha256(hashListMode, dataList, hash);
+	Hasher::ArrayBatchedCalc<HashType::SHA256>(hash, sk_labelName, m_name, sk_labelPhone, m_phone, sk_labelLicPlate, m_licPlate);
 
 	return std::move(hash);
 }

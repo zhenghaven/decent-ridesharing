@@ -3,7 +3,7 @@
 #ifndef DECENT_PURE_CLIENT
 
 #include <sgx_error.h>
-#include <DecentApi/CommonApp/SGX/EnclaveRuntimeException.h>
+#include <DecentApi/Common/SGX/RuntimeError.h>
 
 using namespace RideShare;
 using namespace Decent::Net;
@@ -31,7 +31,7 @@ RideShareApp::RideShareApp(const std::string & enclavePath, const Decent::Tools:
 void RideShare::RideShareApp::InitEnclave(const std::string & opPayInfo)
 {
 	sgx_status_t enclaveRet = ecall_ride_share_init(GetEnclaveId(), opPayInfo.c_str());
-	CHECK_SGX_ENCLAVE_RUNTIME_EXCEPTION(enclaveRet, ecall_ride_share_init);
+	DECENT_CHECK_SGX_STATUS_ERROR(enclaveRet, ecall_ride_share_init);
 }
 
 #endif // !DECENT_PURE_CLIENT

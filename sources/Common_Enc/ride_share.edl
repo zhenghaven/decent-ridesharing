@@ -16,6 +16,5 @@ enclave
 	
 	untrusted
 	{
-		void ocall_ride_share_cnt_mgr_close_cnt([user_check] void* cnt_ptr);
 	};
 };

@@ -2,10 +2,12 @@
 
 #include <mutex>
 #include <memory>
+#include <map>
 
 #include <DecentApi/Common/Common.h>
 #include <DecentApi/Common/make_unique.h>
-#include <DecentApi/Common/Ra/TlsConfig.h>
+#include <DecentApi/Common/Ra/ClientX509.h>
+#include <DecentApi/Common/Ra/TlsConfigWithName.h>
 #include <DecentApi/Common/Ra/KeyContainer.h>
 #include <DecentApi/Common/Ra/CertContainer.h>
 #include <DecentApi/Common/Net/TlsCommLayer.h>
@@ -15,8 +17,6 @@
 #include <rapidjson/document.h>
 #include <cppcodec/base64_default_rfc4648.hpp>
 
-#include "../Common/Crypto.h"
-#include "../Common/TlsConfig.h"
 #include "../Common/AppNames.h"
 #include "../Common/RideSharingFuncNums.h"
 #include "../Common/RideSharingMessages.h"
@@ -25,6 +25,7 @@
 
 using namespace RideShare;
 using namespace Decent::Ra;
+using namespace Decent::Net;
 
 namespace
 {
@@ -56,23 +57,15 @@ namespace
 	template<typename MsgType>
 	static std::unique_ptr<MsgType> ParseMsg(const std::string& msgStr)
 	{
-		try
-		{
-			rapidjson::Document json;
-			return Decent::Tools::ParseStr2Json(json, msgStr) ? 
-				Decent::Tools::make_unique<MsgType>(json) :
-				nullptr;
-		}
-		catch (const std::exception&)
-		{
-			return nullptr;
-		}
+		rapidjson::Document json;
+		Decent::Tools::ParseStr2Json(json, msgStr);
+		return Decent::Tools::make_unique<MsgType>(json);
 	}
-}
 
-static bool VerifyContactInfo(const ComMsg::PasContact& contact)
-{
-	return contact.GetName().size() != 0 && contact.GetPhone().size() != 0;
+	static bool VerifyContactInfo(const ComMsg::PasContact& contact)
+	{
+		return contact.GetName().size() != 0 && contact.GetPhone().size() != 0;
+	}
 }
 
 static void ProcessPasRegisterReq(void* const connection, Decent::Net::TlsCommLayer& tls)
@@ -81,12 +74,8 @@ static void ProcessPasRegisterReq(void* const connection, Decent::Net::TlsCommLa
 
 	std::string msgBuf;
 
-	std::unique_ptr<ComMsg::PasReg> pasRegInfo;
 	tls.ReceiveMsg(connection, msgBuf);
-	if (!(pasRegInfo = ParseMsg<ComMsg::PasReg>(msgBuf)))
-	{
-		return;
-	}
+	std::unique_ptr<ComMsg::PasReg> pasRegInfo = ParseMsg<ComMsg::PasReg>(msgBuf);
 
 	if (!VerifyContactInfo(pasRegInfo->GetContact()))
 	{
@@ -121,7 +110,7 @@ static void ProcessPasRegisterReq(void* const connection, Decent::Net::TlsCommLa
 		return;
 	}
 
-	ClientX509 clientCert(certReq.GetEcPublicKey(), *cert, *prvKey, "Decent_RideShare_Passenger_" + pasRegInfo->GetContact().GetName(), 
+	ClientX509 clientCert(certReq.GetEcPublicKey(), *cert, *prvKey, "Decent_RideShare_Passenger", 
 		cppcodec::base64_rfc4648::encode(pasRegInfo->GetContact().CalcHash()));
 
 	{
@@ -150,18 +139,16 @@ extern "C" int ecall_ride_share_pm_from_pas(void* const connection)
 
 	try
 	{
-		std::shared_ptr<Decent::Ra::TlsConfig> pasTlsCfg = std::make_shared<Decent::Ra::TlsConfig>("NaN", gs_state, true);
-		Decent::Net::TlsCommLayer pasTls(connection, pasTlsCfg, false);
+		std::shared_ptr<TlsConfigWithName> tlsCfg = std::make_shared<TlsConfigWithName>(gs_state, TlsConfig::Mode::ServerNoVerifyPeer, "NaN");
+		TlsCommLayer tls(connection, tlsCfg, false);
 
 		NumType funcNum;
-		pasTls.ReceiveStruct(connection, funcNum);
-
-		LOGI("Request Function: %d.", funcNum);
+		tls.ReceiveStruct(connection, funcNum);
 
 		switch (funcNum)
 		{
 		case k_userReg:
-			ProcessPasRegisterReq(connection, pasTls);
+			ProcessPasRegisterReq(connection, tls);
 			break;
 		default:
 			break;
@@ -181,12 +168,8 @@ static void LogQuery(void* const connection, Decent::Net::TlsCommLayer& tls)
 
 	std::string msgBuf;
 
-	std::unique_ptr<ComMsg::PasQueryLog> queryLog;
 	tls.ReceiveMsg(connection, msgBuf);
-	if (!(queryLog = ParseMsg<ComMsg::PasQueryLog>(msgBuf)))
-	{
-		return;
-	}
+	std::unique_ptr<ComMsg::PasQueryLog> queryLog = ParseMsg<ComMsg::PasQueryLog>(msgBuf);
 
 	const ComMsg::GetQuote& getQuote = queryLog->GetGetQuote();
 
@@ -210,18 +193,16 @@ extern "C" int ecall_ride_share_pm_from_trip_planner(void* const connection)
 
 	try
 	{
-		std::shared_ptr<Decent::Ra::TlsConfig> tpTlsCfg = std::make_shared<Decent::Ra::TlsConfig>(AppNames::sk_tripPlanner, gs_state, true);
-		Decent::Net::TlsCommLayer tpTls(connection, tpTlsCfg, true);
+		std::shared_ptr<TlsConfigWithName> tlsCfg = std::make_shared<TlsConfigWithName>(gs_state, TlsConfig::Mode::ServerVerifyPeer, AppNames::sk_tripPlanner);
+		TlsCommLayer tls(connection, tlsCfg, true);
 
 		NumType funcNum;
-		tpTls.ReceiveStruct(connection, funcNum);
-
-		LOGI("Request Function: %d.", funcNum);
+		tls.ReceiveStruct(connection, funcNum);
 
 		switch (funcNum)
 		{
 		case k_logQuery:
-			LogQuery(connection, tpTls);
+			LogQuery(connection, tls);
 			break;
 		default:
 			break;
@@ -274,18 +255,16 @@ extern "C" int ecall_ride_share_pm_from_payment(void* const connection)
 
 	try
 	{
-		std::shared_ptr<Decent::Ra::TlsConfig> payTlsCfg = std::make_shared<Decent::Ra::TlsConfig>(AppNames::sk_payment, gs_state, true);
-		Decent::Net::TlsCommLayer payTls(connection, payTlsCfg, true);
+		std::shared_ptr<TlsConfigWithName> payTlsCfg = std::make_shared<TlsConfigWithName>(gs_state, TlsConfig::Mode::ServerVerifyPeer, AppNames::sk_payment);
+		TlsCommLayer tls(connection, payTlsCfg, true);
 
 		NumType funcNum;
-		payTls.ReceiveStruct(connection, funcNum);
-
-		LOGI("Request Function: %d.", funcNum);
+		tls.ReceiveStruct(connection, funcNum);
 
 		switch (funcNum)
 		{
 		case k_getPayInfo:
-			RequestPaymentInfo(connection, payTls);
+			RequestPaymentInfo(connection, tls);
 			break;
 		default:
 			break;

@@ -1,6 +1,6 @@
 #include "PaymentApp.h"
 
-#include <DecentApi/CommonApp/SGX/EnclaveRuntimeException.h>
+#include <DecentApi/Common/SGX/RuntimeError.h>
 
 #include "../Common_App/RideSharingMessages.h"
 
@@ -14,7 +14,7 @@ bool PaymentApp::ProcessMsgFromTripMatcher(Decent::Net::Connection & connection)
 	sgx_status_t enclaveRet = SGX_SUCCESS;
 
 	enclaveRet = ecall_ride_share_pay_from_trip_matcher(GetEnclaveId(), &retValue, &connection);
-	CHECK_SGX_ENCLAVE_RUNTIME_EXCEPTION(enclaveRet, ecall_ride_share_pay_from_trip_matcher);
+	DECENT_CHECK_SGX_STATUS_ERROR(enclaveRet, ecall_ride_share_pay_from_trip_matcher);
 
 	return retValue;
 }

@@ -1,6 +1,6 @@
 #include "TripPlanerApp.h"
 
-#include <DecentApi/CommonApp/SGX/EnclaveRuntimeException.h>
+#include <DecentApi/Common/SGX/RuntimeError.h>
 
 #include "../Common_App/RideSharingMessages.h"
 
@@ -14,7 +14,7 @@ bool TripPlanerApp::ProcessMsgFromPassenger(Decent::Net::Connection & connection
 	sgx_status_t enclaveRet = SGX_SUCCESS;
 
 	enclaveRet = ecall_ride_share_tp_from_pas(GetEnclaveId(), &retValue, &connection);
-	CHECK_SGX_ENCLAVE_RUNTIME_EXCEPTION(enclaveRet, ecall_ride_share_tp_from_pas);
+	DECENT_CHECK_SGX_STATUS_ERROR(enclaveRet, ecall_ride_share_tp_from_pas);
 
 	return retValue;
 }

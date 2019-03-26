@@ -5,7 +5,7 @@
 
 #include <DecentApi/Common/Common.h>
 #include <DecentApi/Common/make_unique.h>
-#include <DecentApi/Common/Ra/TlsConfig.h>
+#include <DecentApi/Common/Ra/TlsConfigWithName.h>
 #include <DecentApi/Common/Ra/KeyContainer.h>
 #include <DecentApi/Common/Ra/CertContainer.h>
 #include <DecentApi/Common/Net/TlsCommLayer.h>
@@ -14,8 +14,6 @@
 
 #include <rapidjson/document.h>
 
-#include "../Common/Crypto.h"
-#include "../Common/TlsConfig.h"
 #include "../Common/AppNames.h"
 #include "../Common/RideSharingFuncNums.h"
 #include "../Common/RideSharingMessages.h"
@@ -24,6 +22,7 @@
 
 using namespace RideShare;
 using namespace Decent::Ra;
+using namespace Decent::Net;
 
 namespace
 {
@@ -32,17 +31,9 @@ namespace
 	template<typename MsgType>
 	static std::unique_ptr<MsgType> ParseMsg(const std::string& msgStr)
 	{
-		try
-		{
-			rapidjson::Document json;
-			return Decent::Tools::ParseStr2Json(json, msgStr) ? 
-				Decent::Tools::make_unique<MsgType>(json) :
-				nullptr;
-		}
-		catch (const std::exception&)
-		{
-			return nullptr;
-		}
+		rapidjson::Document json;
+		Decent::Tools::ParseStr2Json(json, msgStr);
+		return Decent::Tools::make_unique<MsgType>(json);
 	}
 }
 
@@ -76,12 +67,8 @@ static void ProcessCalPriceReq(void* const connection, Decent::Net::TlsCommLayer
 
 	std::string msgBuf;
 
-	std::unique_ptr<ComMsg::Path> pathMsg;
 	tls.ReceiveMsg(connection, msgBuf);
-	if (!(pathMsg = ParseMsg<ComMsg::Path>(msgBuf)))
-	{
-		return;
-	}
+	std::unique_ptr<ComMsg::Path> pathMsg = ParseMsg<ComMsg::Path>(msgBuf);
 
 	const double price = CalPrice(pathMsg->GetPath());
 	LOGI("Got price: %f.", price);
@@ -105,18 +92,16 @@ extern "C" int ecall_ride_share_bill_from_trip_planner(void* const connection)
 
 	try
 	{
-		std::shared_ptr<Decent::Ra::TlsConfig> tpTlsCfg = std::make_shared<Decent::Ra::TlsConfig>(AppNames::sk_tripPlanner, gs_state, true);
-		Decent::Net::TlsCommLayer tpTls(connection, tpTlsCfg, true);
+		std::shared_ptr<TlsConfigWithName> tlsCfg = std::make_shared<TlsConfigWithName>(gs_state, TlsConfig::Mode::ServerVerifyPeer, AppNames::sk_tripPlanner);
+		TlsCommLayer tls(connection, tlsCfg, true);
 
 		NumType funcNum;
-		tpTls.ReceiveStruct(connection, funcNum);
-
-		LOGI("Request Function: %d.", funcNum);
+		tls.ReceiveStruct(connection, funcNum);
 
 		switch (funcNum)
 		{
 		case k_calPrice:
-			ProcessCalPriceReq(connection, tpTls);
+			ProcessCalPriceReq(connection, tls);
 			break;
 		default:
 			break;

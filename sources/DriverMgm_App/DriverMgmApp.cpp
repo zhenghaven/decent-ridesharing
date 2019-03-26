@@ -1,6 +1,6 @@
 #include "DriverMgmApp.h"
 
-#include <DecentApi/CommonApp/SGX/EnclaveRuntimeException.h>
+#include <DecentApi/Common/SGX/RuntimeError.h>
 
 #include "../Common_App/RideSharingMessages.h"
 
@@ -14,7 +14,7 @@ bool DriverMgm::ProcessMsgFromDriver(Decent::Net::Connection & connection)
 	sgx_status_t enclaveRet = SGX_SUCCESS;
 
 	enclaveRet = ecall_ride_share_dm_from_dri(GetEnclaveId(), &retValue, &connection);
-	CHECK_SGX_ENCLAVE_RUNTIME_EXCEPTION(enclaveRet, ecall_ride_share_dm_from_dri);
+	DECENT_CHECK_SGX_STATUS_ERROR(enclaveRet, ecall_ride_share_dm_from_dri);
 
 	return retValue;
 }
@@ -25,7 +25,7 @@ bool DriverMgm::ProcessMsgFromTripMatcher(Decent::Net::Connection & connection)
 	sgx_status_t enclaveRet = SGX_SUCCESS;
 
 	enclaveRet = ecall_ride_share_dm_from_trip_matcher(GetEnclaveId(), &retValue, &connection);
-	CHECK_SGX_ENCLAVE_RUNTIME_EXCEPTION(enclaveRet, ecall_ride_share_dm_from_trip_matcher);
+	DECENT_CHECK_SGX_STATUS_ERROR(enclaveRet, ecall_ride_share_dm_from_trip_matcher);
 
 	return retValue;
 }
@@ -36,7 +36,7 @@ bool DriverMgm::ProcessMsgFromPayment(Decent::Net::Connection & connection)
 	sgx_status_t enclaveRet = SGX_SUCCESS;
 
 	enclaveRet = ecall_ride_share_dm_from_payment(GetEnclaveId(), &retValue, &connection);
-	CHECK_SGX_ENCLAVE_RUNTIME_EXCEPTION(enclaveRet, ecall_ride_share_dm_from_payment);
+	DECENT_CHECK_SGX_STATUS_ERROR(enclaveRet, ecall_ride_share_dm_from_payment);
 
 	return retValue;
 }

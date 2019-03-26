@@ -1,6 +1,6 @@
 #include "PassengerMgmApp.h"
 
-#include <DecentApi/CommonApp/SGX/EnclaveRuntimeException.h>
+#include <DecentApi/Common/SGX/RuntimeError.h>
 
 #include "../Common_App/RideSharingMessages.h"
 
@@ -14,7 +14,7 @@ bool PassengerMgm::ProcessMsgFromPassenger(Decent::Net::Connection & connection)
 	sgx_status_t enclaveRet = SGX_SUCCESS;
 
 	enclaveRet = ecall_ride_share_pm_from_pas(GetEnclaveId(), &retValue, &connection);
-	CHECK_SGX_ENCLAVE_RUNTIME_EXCEPTION(enclaveRet, ecall_ride_share_pm_from_pas);
+	DECENT_CHECK_SGX_STATUS_ERROR(enclaveRet, ecall_ride_share_pm_from_pas);
 
 	return retValue;
 }
@@ -25,7 +25,7 @@ bool PassengerMgm::ProcessMsgFromTripPlanner(Decent::Net::Connection & connectio
 	sgx_status_t enclaveRet = SGX_SUCCESS;
 
 	enclaveRet = ecall_ride_share_pm_from_trip_planner(GetEnclaveId(), &retValue, &connection);
-	CHECK_SGX_ENCLAVE_RUNTIME_EXCEPTION(enclaveRet, ecall_ride_share_pm_from_trip_planner);
+	DECENT_CHECK_SGX_STATUS_ERROR(enclaveRet, ecall_ride_share_pm_from_trip_planner);
 
 	return retValue;
 }
@@ -36,7 +36,7 @@ bool PassengerMgm::ProcessMsgFromPayment(Decent::Net::Connection & connection)
 	sgx_status_t enclaveRet = SGX_SUCCESS;
 
 	enclaveRet = ecall_ride_share_pm_from_payment(GetEnclaveId(), &retValue, &connection);
-	CHECK_SGX_ENCLAVE_RUNTIME_EXCEPTION(enclaveRet, ecall_ride_share_pm_from_trip_planner);
+	DECENT_CHECK_SGX_STATUS_ERROR(enclaveRet, ecall_ride_share_pm_from_trip_planner);
 
 	return retValue;
 }

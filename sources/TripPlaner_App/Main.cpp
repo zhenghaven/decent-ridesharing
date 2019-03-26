@@ -3,7 +3,6 @@
 #include <iostream>
 
 #include <tclap/CmdLine.h>
-#include <boost/asio/ip/address_v4.hpp>
 #include <sgx_quote.h>
 
 #include <DecentApi/CommonApp/Common.h>
@@ -67,7 +66,7 @@ int main(int argc, char ** argv)
 	const ConfigItem& tripPlannerItem = configManager.GetItem(AppNames::sk_tripPlanner);
 
 
-	uint32_t serverIp = boost::asio::ip::address_v4::from_string(decentServerItem.GetAddr()).to_uint();
+	uint32_t serverIp = Net::TCPConnection::GetIpAddressFromStr(decentServerItem.GetAddr());
 	std::unique_ptr<Net::Connection> serverCon;
 
 	if (isSendWlArg.getValue())
@@ -94,8 +93,7 @@ int main(int argc, char ** argv)
 
 	Net::SmartServer smartServer;
 
-	uint32_t tripPlannerIp = boost::asio::ip::address_v4::from_string(tripPlannerItem.GetAddr()).to_uint();
-	std::unique_ptr<Net::Server> server(std::make_unique<Net::TCPServer>(tripPlannerIp, tripPlannerItem.GetPort()));
+	std::unique_ptr<Net::Server> server(std::make_unique<Net::TCPServer>(tripPlannerItem.GetAddr(), tripPlannerItem.GetPort()));
 	
 	smartServer.AddServer(server, enclave);
 	smartServer.RunUtilUserTerminate();

@@ -2,26 +2,26 @@
 
 #include <DecentApi/Common/Common.h>
 #include <DecentApi/Common/make_unique.h>
-#include <DecentApi/Common/Ra/TlsConfig.h>
+#include <DecentApi/Common/Ra/TlsConfigWithName.h>
+#include <DecentApi/Common/Ra/TlsConfigClient.h>
 #include <DecentApi/Common/Net/TlsCommLayer.h>
 #include <DecentApi/Common/Tools/JsonTools.h>
+#include <DecentApi/CommonEnclave/SGX/OcallConnector.h>
 #include <DecentApi/DecentAppEnclave/AppStatesSingleton.h>
 
 #include <rapidjson/document.h>
 
 #include "../Common/RideSharingFuncNums.h"
 #include "../Common/RideSharingMessages.h"
-#include "../Common/Crypto.h"
-#include "../Common/TlsConfig.h"
 #include "../Common/AppNames.h"
 
 #include "../Common_Enc/OperatorPayment.h"
-#include "../Common_Enc/Connector.h"
 
 #include "Enclave_t.h"
 
 using namespace RideShare;
 using namespace Decent::Ra;
+using namespace Decent::Net;
 
 namespace
 {
@@ -30,17 +30,9 @@ namespace
 	template<typename MsgType>
 	static std::unique_ptr<MsgType> ParseMsg(const std::string& msgStr)
 	{
-		try
-		{
-			rapidjson::Document json;
-			return Decent::Tools::ParseStr2Json(json, msgStr) ?
-				Decent::Tools::make_unique<MsgType>(json) :
-				nullptr;
-		}
-		catch (const std::exception&)
-		{
-			return nullptr;
-		}
+		rapidjson::Document json;
+		Decent::Tools::ParseStr2Json(json, msgStr);
+		return Decent::Tools::make_unique<MsgType>(json);
 	}
 }
 
@@ -58,19 +50,15 @@ static bool SendQueryLog(const std::string& userId, const ComMsg::GetQuote& getQ
 	using namespace EncFunc::PassengerMgm;
 	LOGI("Connecting to a Passenger Management...");
 
-	Connector cnt(&ocall_ride_share_cnt_mgr_get_pas_mgm);
-	if (!cnt.m_ptr)
-	{
-		return false;
-	}
+	OcallConnector cnt(&ocall_ride_share_cnt_mgr_get_pas_mgm);
 
 	ComMsg::PasQueryLog log(userId, getQuote);
 
-	std::shared_ptr<Decent::Ra::TlsConfig> pasMgmTlsCfg = std::make_shared<Decent::Ra::TlsConfig>(AppNames::sk_passengerMgm, gs_state, false);
-	Decent::Net::TlsCommLayer pasMgmTls(cnt.m_ptr, pasMgmTlsCfg, true);
+	std::shared_ptr<TlsConfigWithName> pasMgmTlsCfg = std::make_shared<TlsConfigWithName>(gs_state, TlsConfig::Mode::ClientHasCert, AppNames::sk_passengerMgm);
+	Decent::Net::TlsCommLayer pasMgmTls(cnt.Get(), pasMgmTlsCfg, true);
 	
-	pasMgmTls.SendStruct(cnt.m_ptr, k_logQuery);
-	pasMgmTls.SendMsg(cnt.m_ptr, log.ToString());
+	pasMgmTls.SendStruct(cnt.Get(), k_logQuery);
+	pasMgmTls.SendMsg(cnt.Get(), log.ToString());
 
 	return true;
 }
@@ -79,25 +67,17 @@ static std::unique_ptr<ComMsg::Price> GetPriceFromBilling(const ComMsg::Path& pa
 {
 	using namespace EncFunc::Billing;
 	LOGI("Querying Billing Service for price...");
-	Connector cnt(&ocall_ride_share_cnt_mgr_get_billing);
-	if (!cnt.m_ptr)
-	{
-		return nullptr;
-	}
+	OcallConnector cnt(&ocall_ride_share_cnt_mgr_get_billing);
 
-	std::shared_ptr<Decent::Ra::TlsConfig> bsTlsCfg = std::make_shared<Decent::Ra::TlsConfig>(AppNames::sk_billing, gs_state, false);
-	Decent::Net::TlsCommLayer bsTls(cnt.m_ptr, bsTlsCfg, true);
+	std::shared_ptr<TlsConfigWithName> bsTlsCfg = std::make_shared<TlsConfigWithName>(gs_state, TlsConfig::Mode::ClientHasCert, AppNames::sk_billing);
+	Decent::Net::TlsCommLayer bsTls(cnt.Get(), bsTlsCfg, true);
 
 	std::string msgBuf;
-	std::unique_ptr<ComMsg::Price> price;
 
-	bsTls.SendStruct(cnt.m_ptr, k_calPrice);
-	bsTls.SendMsg(cnt.m_ptr, pathMsg.ToString());
-	bsTls.ReceiveMsg(cnt.m_ptr, msgBuf);
-	if (!(price = ParseMsg<ComMsg::Price>(msgBuf)))
-	{
-		return nullptr;
-	}
+	bsTls.SendStruct(cnt.Get(), k_calPrice);
+	bsTls.SendMsg(cnt.Get(), pathMsg.ToString());
+	bsTls.ReceiveMsg(cnt.Get(), msgBuf);
+	std::unique_ptr<ComMsg::Price> price = ParseMsg<ComMsg::Price>(msgBuf);
 
 	return std::move(price);
 }
@@ -107,14 +87,9 @@ static void ProcessGetQuote(void* const connection, Decent::Net::TlsCommLayer& t
 	LOGI("Process Get Quote Request.");
 
 	std::string msgBuf;
-
-	std::unique_ptr<ComMsg::GetQuote> getQuote;
 	
 	tls.ReceiveMsg(connection, msgBuf);
-	if (!(getQuote = ParseMsg<ComMsg::GetQuote>(msgBuf)))
-	{
-		return;
-	}
+	std::unique_ptr<ComMsg::GetQuote> getQuote = ParseMsg<ComMsg::GetQuote>(msgBuf);
 
 	const std::string pasId = tls.GetPublicKeyPem();
 	if (pasId.size() == 0 ||
@@ -156,13 +131,11 @@ extern "C" int ecall_ride_share_tp_from_pas(void* const connection)
 
 	try
 	{
-		std::shared_ptr<RideShare::TlsConfig> tlsCfg = std::make_shared<RideShare::TlsConfig>(AppNames::sk_passengerMgm, gs_state, true);
-		Decent::Net::TlsCommLayer tls(connection, tlsCfg, true);
+		std::shared_ptr<TlsConfigClient> tlsCfg = std::make_shared<TlsConfigClient>(gs_state, TlsConfig::Mode::ServerVerifyPeer, AppNames::sk_passengerMgm);
+		TlsCommLayer tls(connection, tlsCfg, true);
 
 		NumType funcNum;
 		tls.ReceiveStruct(connection, funcNum);
-
-		LOGI("Request Function: %d.", funcNum);
 
 		switch (funcNum)
 		{

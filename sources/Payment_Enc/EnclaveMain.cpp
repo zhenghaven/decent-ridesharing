@@ -1,25 +1,24 @@
 #include <DecentApi/Common/Common.h>
 #include <DecentApi/Common/make_unique.h>
-#include <DecentApi/Common/Ra/TlsConfig.h>
+#include <DecentApi/Common/Ra/TlsConfigWithName.h>
 #include <DecentApi/Common/Net/TlsCommLayer.h>
 #include <DecentApi/Common/Tools/JsonTools.h>
+#include <DecentApi/CommonEnclave/SGX/OcallConnector.h>
 #include <DecentApi/DecentAppEnclave/AppStatesSingleton.h>
 
 #include <rapidjson/document.h>
 
 #include "../Common/RideSharingFuncNums.h"
 #include "../Common/RideSharingMessages.h"
-#include "../Common/Crypto.h"
-#include "../Common/TlsConfig.h"
 #include "../Common/AppNames.h"
 
 #include "../Common_Enc/OperatorPayment.h"
-#include "../Common_Enc/Connector.h"
 
 #include "Enclave_t.h"
 
 using namespace RideShare;
 using namespace Decent::Ra;
+using namespace Decent::Net;
 
 namespace
 {
@@ -28,17 +27,9 @@ namespace
 	template<typename MsgType>
 	static std::unique_ptr<MsgType> ParseMsg(const std::string& msgStr)
 	{
-		try
-		{
-			rapidjson::Document json;
-			return Decent::Tools::ParseStr2Json(json, msgStr) ?
-				Decent::Tools::make_unique<MsgType>(json) :
-				nullptr;
-		}
-		catch (const std::exception&)
-		{
-			return nullptr;
-		}
+		rapidjson::Document json;
+		Decent::Tools::ParseStr2Json(json, msgStr);
+		return Decent::Tools::make_unique<MsgType>(json);
 	}
 }
 
@@ -47,19 +38,15 @@ static std::unique_ptr<ComMsg::RequestedPayment> GetPassengerPayment(const std::
 	using namespace EncFunc::PassengerMgm;
 	LOGI("Connecting to a Passenger Management...");
 
-	Connector cnt(&ocall_ride_share_cnt_mgr_get_pas_mgm);
-	if (!cnt.m_ptr)
-	{
-		return nullptr;
-	}
+	OcallConnector cnt(&ocall_ride_share_cnt_mgr_get_pas_mgm);
 
-	std::shared_ptr<Decent::Ra::TlsConfig> tlsCfg = std::make_shared<Decent::Ra::TlsConfig>(AppNames::sk_passengerMgm, gs_state, false);
-	Decent::Net::TlsCommLayer tls(cnt.m_ptr, tlsCfg, true);
+	std::shared_ptr<TlsConfigWithName> tlsCfg = std::make_shared<TlsConfigWithName>(gs_state, TlsConfig::Mode::ClientHasCert, AppNames::sk_passengerMgm);
+	TlsCommLayer tls(cnt.Get(), tlsCfg, true);
 
 	std::string strBuf;
-	tls.SendStruct(cnt.m_ptr, k_getPayInfo);
-	tls.SendMsg(cnt.m_ptr, pasId);
-	tls.ReceiveMsg(cnt.m_ptr, strBuf);
+	tls.SendStruct(cnt.Get(), k_getPayInfo);
+	tls.SendMsg(cnt.Get(), pasId);
+	tls.ReceiveMsg(cnt.Get(), strBuf);
 
 	return ParseMsg<ComMsg::RequestedPayment>(strBuf);
 }
@@ -69,19 +56,15 @@ static std::unique_ptr<ComMsg::RequestedPayment> GetDriverPayment(const std::str
 	using namespace EncFunc::DriverMgm;
 	LOGI("Connecting to a Driver Management...");
 
-	Connector cnt(&ocall_ride_share_cnt_mgr_get_dri_mgm);
-	if (!cnt.m_ptr)
-	{
-		return nullptr;
-	}
+	OcallConnector cnt(&ocall_ride_share_cnt_mgr_get_dri_mgm);
 
-	std::shared_ptr<Decent::Ra::TlsConfig> tlsCfg = std::make_shared<Decent::Ra::TlsConfig>(AppNames::sk_driverMgm, gs_state, false);
-	Decent::Net::TlsCommLayer tls(cnt.m_ptr, tlsCfg, true);
+	std::shared_ptr<TlsConfigWithName> tlsCfg = std::make_shared<TlsConfigWithName>(gs_state, TlsConfig::Mode::ClientHasCert, AppNames::sk_driverMgm);
+	TlsCommLayer tls(cnt.Get(), tlsCfg, true);
 
 	std::string strBuf;
-	tls.SendStruct(cnt.m_ptr, k_getPayInfo);
-	tls.SendMsg(cnt.m_ptr, driId);
-	tls.ReceiveMsg(cnt.m_ptr, strBuf);
+	tls.SendStruct(cnt.Get(), k_getPayInfo);
+	tls.SendMsg(cnt.Get(), driId);
+	tls.ReceiveMsg(cnt.Get(), strBuf);
 
 	return ParseMsg<ComMsg::RequestedPayment>(strBuf);
 }
@@ -91,22 +74,12 @@ static void ProcessPayment(void* const connection, Decent::Net::TlsCommLayer& tl
 	LOGI("Process payment...");
 
 	std::string msgBuf;
-
-	std::unique_ptr<ComMsg::FinalBill> bill;
 	
 	tls.ReceiveMsg(connection, msgBuf);
-	if (!(bill = ParseMsg<ComMsg::FinalBill>(msgBuf)))
-	{
-		return;
-	}
+	std::unique_ptr<ComMsg::FinalBill> bill = ParseMsg<ComMsg::FinalBill>(msgBuf);
 
 	std::unique_ptr<ComMsg::RequestedPayment> pasPayment = GetPassengerPayment(bill->GetQuote().GetPasId());
 	std::unique_ptr<ComMsg::RequestedPayment> driPayment = GetDriverPayment(bill->GetDriId());
-
-	if (!pasPayment || !driPayment)
-	{
-		return;
-	}
 
 	PRINT_I("Pay from %s, to:", pasPayment->GetPayemnt().c_str());
 	PRINT_I("\t Driver                       : %s", driPayment->GetPayemnt().c_str());
@@ -130,18 +103,16 @@ extern "C" int ecall_ride_share_pay_from_trip_matcher(void* const connection)
 
 	try
 	{
-		std::shared_ptr<Decent::Ra::TlsConfig> tmTlsCfg = std::make_shared<Decent::Ra::TlsConfig>(AppNames::sk_tripMatcher, gs_state, true);
-		Decent::Net::TlsCommLayer tmTls(connection, tmTlsCfg, true);
+		std::shared_ptr<TlsConfigWithName> tlsCfg = std::make_shared<TlsConfigWithName>(gs_state, TlsConfig::Mode::ServerVerifyPeer, AppNames::sk_tripMatcher);
+		TlsCommLayer tls(connection, tlsCfg, true);
 
 		NumType funcNum;
-		tmTls.ReceiveStruct(connection, funcNum);
-
-		LOGI("Request Function: %d.", funcNum);
+		tls.ReceiveStruct(connection, funcNum);
 
 		switch (funcNum)
 		{
 		case k_procPayment:
-			ProcessPayment(connection, tmTls);
+			ProcessPayment(connection, tls);
 			break;
 		default:
 			break;
