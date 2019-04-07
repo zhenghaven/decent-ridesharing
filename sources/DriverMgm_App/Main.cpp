@@ -15,7 +15,7 @@
 #include <DecentApi/CommonApp/Tools/ConfigManager.h>
 
 #include <DecentApi/Common/Common.h>
-#include <DecentApi/Common/Ra/WhiteList/HardCoded.h>
+#include <DecentApi/Common/Ra/WhiteList/WhiteList.h>
 
 #include "../Common/AppNames.h"
 #include "../Common_App/Tools.h"
