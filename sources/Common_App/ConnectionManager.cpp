@@ -2,7 +2,7 @@
 
 #include <DecentApi/Common/Common.h>
 #include <DecentApi/CommonApp/Net/TCPConnection.h>
-#include <DecentApi/CommonApp/Tools/ConfigManager.h>
+#include <DecentApi/CommonApp/AppConfig/EnclaveList.h>
 
 #include "../Common/AppNames.h"
 
@@ -12,72 +12,77 @@ using namespace Decent::Net;
 
 namespace
 {
-	static const ConfigManager* gsk_configMgrPtr = nullptr;
+	static const Decent::AppConfig::EnclaveList* gsk_enclaveList = nullptr;
 
-	static inline std::unique_ptr<Connection> InternalGetConnection(const ConfigItem& configItem, const SmartMessages& hsMsg)
+	static inline std::unique_ptr<ConnectionBase> InternalGetConnection(const Decent::AppConfig::EnclaveListItem& enclaveItem, const std::string& category)
 	{
 		try
 		{
-			std::unique_ptr<Connection> connection = std::make_unique<TCPConnection>(configItem.GetAddr(), configItem.GetPort());
+			std::unique_ptr<ConnectionBase> connection = std::make_unique<TCPConnection>(enclaveItem.GetAddr(), enclaveItem.GetPort());
 
 			if (connection)
 			{
-				connection->SendPack(hsMsg);
+				connection->SendContainer(category);
+				return std::move(connection);
 			}
-			return std::move(connection);
+			else
+			{
+				LOGW("Failed to establish connection. (Memory allocation failed).");
+				throw std::runtime_error("Memory allocation failed");
+			}
 		}
 		catch (const std::exception& e)
 		{
 			const char* msgStr = e.what();
 			LOGW("Failed to establish connection. (Err Msg: %s)", msgStr);
-			return nullptr;
+			throw e;
 		}
 	}
 }
 
-void ConnectionManager::SetConfigManager(const ConfigManager & mgrRef)
+void ConnectionManager::SetEnclaveList(const Decent::AppConfig::EnclaveList& list)
 {
-	gsk_configMgrPtr = &mgrRef;
+	gsk_enclaveList = &list;
 }
 
-std::unique_ptr<Connection> ConnectionManager::GetConnection2PassengerMgm(const SmartMessages& hsMsg)
+std::unique_ptr<ConnectionBase> ConnectionManager::GetConnection2PassengerMgm(const std::string& category)
 {
-	const ConfigItem& pasMgmItem = gsk_configMgrPtr->GetItem(AppNames::sk_passengerMgm);
+	const auto& enclaveItem = gsk_enclaveList->GetItem(AppNames::sk_passengerMgm);
 
-	return InternalGetConnection(pasMgmItem, hsMsg);
+	return InternalGetConnection(enclaveItem, category);
 }
 
-std::unique_ptr<Connection> ConnectionManager::GetConnection2TripPlanner(const SmartMessages& hsMsg)
+std::unique_ptr<ConnectionBase> ConnectionManager::GetConnection2TripPlanner(const std::string& category)
 {
-	const ConfigItem& pasMgmItem = gsk_configMgrPtr->GetItem(AppNames::sk_tripPlanner);
+	const auto& enclaveItem = gsk_enclaveList->GetItem(AppNames::sk_tripPlanner);
 
-	return InternalGetConnection(pasMgmItem, hsMsg);
+	return InternalGetConnection(enclaveItem, category);
 }
 
-std::unique_ptr<Connection> ConnectionManager::GetConnection2TripMatcher(const SmartMessages& hsMsg)
+std::unique_ptr<ConnectionBase> ConnectionManager::GetConnection2TripMatcher(const std::string& category)
 {
-	const ConfigItem& pasMgmItem = gsk_configMgrPtr->GetItem(AppNames::sk_tripMatcher);
+	const auto& enclaveItem = gsk_enclaveList->GetItem(AppNames::sk_tripMatcher);
 
-	return InternalGetConnection(pasMgmItem, hsMsg);
+	return InternalGetConnection(enclaveItem, category);
 }
 
-std::unique_ptr<Connection> ConnectionManager::GetConnection2Billing(const SmartMessages& hsMsg)
+std::unique_ptr<ConnectionBase> ConnectionManager::GetConnection2Billing(const std::string& category)
 {
-	const ConfigItem& pasMgmItem = gsk_configMgrPtr->GetItem(AppNames::sk_billing);
+	const auto& enclaveItem = gsk_enclaveList->GetItem(AppNames::sk_billing);
 
-	return InternalGetConnection(pasMgmItem, hsMsg);
+	return InternalGetConnection(enclaveItem, category);
 }
 
-std::unique_ptr<Connection> ConnectionManager::GetConnection2Payment(const SmartMessages& hsMsg)
+std::unique_ptr<ConnectionBase> ConnectionManager::GetConnection2Payment(const std::string& category)
 {
-	const ConfigItem& pasMgmItem = gsk_configMgrPtr->GetItem(AppNames::sk_payment);
+	const auto& enclaveItem = gsk_enclaveList->GetItem(AppNames::sk_payment);
 
-	return InternalGetConnection(pasMgmItem, hsMsg);
+	return InternalGetConnection(enclaveItem, category);
 }
 
-std::unique_ptr<Connection> ConnectionManager::GetConnection2DriverMgm(const SmartMessages& hsMsg)
+std::unique_ptr<ConnectionBase> ConnectionManager::GetConnection2DriverMgm(const std::string& category)
 {
-	const ConfigItem& pasMgmItem = gsk_configMgrPtr->GetItem(AppNames::sk_driverMgm);
+	const auto& enclaveItem = gsk_enclaveList->GetItem(AppNames::sk_driverMgm);
 
-	return InternalGetConnection(pasMgmItem, hsMsg);
+	return InternalGetConnection(enclaveItem, category);
 }

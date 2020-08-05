@@ -6,7 +6,7 @@
 
 #include <DecentApi/Common/Common.h>
 #include <DecentApi/Common/make_unique.h>
-#include <DecentApi/Common/Ra/ClientX509.h>
+#include <DecentApi/Common/Ra/ClientX509Cert.h>
 #include <DecentApi/Common/Ra/TlsConfigClient.h>
 #include <DecentApi/Common/Ra/TlsConfigWithName.h>
 #include <DecentApi/Common/Ra/KeyContainer.h>
@@ -14,7 +14,10 @@
 #include <DecentApi/Common/Net/TlsCommLayer.h>
 #include <DecentApi/Common/Tools/JsonTools.h>
 #include <DecentApi/Common/MbedTls/Hasher.h>
-#include <DecentApi/CommonEnclave/SGX/OcallConnector.h>
+
+#include <DecentApi/CommonEnclave/Net/EnclaveConnectionOwner.h>
+#include <DecentApi/CommonEnclave/Net/EnclaveCntTranslator.h>
+
 #include <DecentApi/DecentAppEnclave/AppStatesSingleton.h>
 
 #include <rapidjson/document.h>
@@ -125,7 +128,7 @@ static std::string ConstructTripId(const std::string& signedQuote)
 	using namespace Decent::MbedTlsObj;
 
 	General256Hash hash;
-	Hasher::Calc<HashType::SHA256>(signedQuote, hash);
+	Hasher<HashType::SHA256>().Calc(hash, signedQuote);
 
 	return cppcodec::base64_rfc4648::encode(hash);
 }
@@ -210,7 +213,7 @@ static void AddMatchedItem(const std::string& tripId, std::shared_ptr<MatchedIte
 
 static bool VerifyContactHash(const std::string& certPem, const Decent::General256Hash& contactHash)
 {
-	ClientX509 cert(certPem);
+	ClientX509Cert cert(certPem);
 
 	return cert.GetAppId() == cppcodec::base64_rfc4648::encode(contactHash);
 }
@@ -224,11 +227,13 @@ static void ProcessPasConfirmQuoteReq(void* const connection, Decent::Net::TlsCo
 {
 	LOGI("Processing passenger confirm request...");
 
+	EnclaveCntTranslator cnt(connection);
+
 	const std::string pasId = GetClientIdFromTls(tls);
 
 	std::string msgBuf;
 
-	tls.ReceiveMsg(connection, msgBuf);
+	msgBuf = tls.RecvContainer<std::string>(cnt);
 	std::unique_ptr<ComMsg::ConfirmQuote> confirmQuote = ParseMsg<ComMsg::ConfirmQuote>(msgBuf);
 	std::unique_ptr<ComMsg::SignedQuote> signedQuote = ParseSignedQuote(confirmQuote->GetSignQuote(), gs_state);
 	std::unique_ptr<ComMsg::Quote> quote = ParseMsg<ComMsg::Quote>(signedQuote->GetQuote());
@@ -241,12 +246,12 @@ static void ProcessPasConfirmQuoteReq(void* const connection, Decent::Net::TlsCo
 	//verify pas contact.
 	if (!VerifyContactHash(tls.GetPeerCertPem(), confirmQuote->GetContact().CalcHash()))
 	{
-		LOGI("Passenger's contact doesn't match!");
+		LOGW("Passenger's contact doesn't match!");
 		return;
 	}
 
 	std::string tripId = ConstructTripId(confirmQuote->GetSignQuote());
-	LOGI("Got quote with trip ID: %s.", tripId.c_str());
+	PRINT_I("Got quote with trip ID: %s.", tripId.c_str());
 	std::unique_ptr<ConfirmedQuoteItem> item = make_unique<ConfirmedQuoteItem>(confirmQuote->GetContact(), *quote, tripId);
 	ConfirmedQuoteItem* itemPtr = item.get();
 
@@ -266,8 +271,9 @@ static void ProcessPasConfirmQuoteReq(void* const connection, Decent::Net::TlsCo
 	}
 	item.reset();
 
+	PRINT_I("Waiting for a match for the trip with ID %s...", tripId.c_str());
 	itemCond.wait(itemLock, [&driContact] {return static_cast<bool>(driContact); });
-	LOGI("Match for the trip with ID %s is found.", tripId.c_str());
+	PRINT_I("Match for the trip with ID %s is found.", tripId.c_str());
 
 	item = RemoveConfirmedQuote(itemPtr);
 
@@ -278,7 +284,7 @@ static void ProcessPasConfirmQuoteReq(void* const connection, Decent::Net::TlsCo
 	ComMsg::PasMatchedResult pasMatchedRes(std::move(item->m_tripId), std::move(*item->m_driContact));
 	item.reset();
 
-	tls.SendMsg(connection, pasMatchedRes.ToString());
+	tls.SendContainer(cnt, pasMatchedRes.ToString());
 
 }
 
@@ -286,9 +292,11 @@ static void TripStart(void* const connection, Decent::Net::TlsCommLayer& tls, co
 {
 	LOGI("Processing trip start from %s...", isPassenger ? "passenger" : "driver");
 
+	EnclaveCntTranslator cnt(connection);
+
 	std::string tripId;
 
-	tls.ReceiveMsg(connection, tripId);
+	tripId = tls.RecvContainer<std::string>(cnt);
 
 	std::shared_ptr<MatchedItem> item;
 	{
@@ -317,23 +325,22 @@ static void ProcessPayment(const std::shared_ptr<MatchedItem>& item)
 	ComMsg::FinalBill bill(std::move(item->m_quote), std::string(OperatorPayment::GetPaymentInfo()), std::move(item->m_driId));
 
 	LOGI("Sending final bill to payment services...");
+	EnclaveConnectionOwner cnt = EnclaveConnectionOwner::CntBuilder(SGX_SUCCESS, &ocall_ride_share_cnt_mgr_get_payment);
 
-	OcallConnector cnt(&ocall_ride_share_cnt_mgr_get_payment);
+	std::shared_ptr<TlsConfigWithName> tlsCfg = std::make_shared<TlsConfigWithName>(gs_state, TlsConfigWithName::Mode::ClientHasCert, AppNames::sk_payment, nullptr);
+	Decent::Net::TlsCommLayer tls(cnt, tlsCfg, true, nullptr);
 
-	std::shared_ptr<TlsConfigWithName> tlsCfg = std::make_shared<TlsConfigWithName>(gs_state, TlsConfig::Mode::ClientHasCert, AppNames::sk_payment);
-	Decent::Net::TlsCommLayer tls(cnt.Get(), tlsCfg, true);
-
-	tls.SendStruct(cnt.Get(), k_procPayment);
-	tls.SendMsg(cnt.Get(), bill.ToString());
+	tls.SendStruct(cnt, k_procPayment);
+	tls.SendContainer(cnt, bill.ToString());
 }
 
 static void TripEnd(void* const connection, Decent::Net::TlsCommLayer& tls, const bool isPassenger)
 {
 	LOGI("Processing trip end from %s...", isPassenger ? "passenger" : "driver");
 
-	std::string tripId;
+	EnclaveCntTranslator cnt(connection);
 
-	tls.ReceiveMsg(connection, tripId);
+	std::string tripId = tls.RecvContainer<std::string>(cnt);
 
 	std::shared_ptr<MatchedItem> item;
 	{
@@ -472,15 +479,15 @@ static bool SendQueryLog(const std::string& userId, const ComMsg::Point2D<double
 
 	LOGI("Sending query log to a driver management...");
 
-	OcallConnector cnt(&ocall_ride_share_cnt_mgr_get_dri_mgm);
+	EnclaveConnectionOwner cnt = EnclaveConnectionOwner::CntBuilder(SGX_SUCCESS, &ocall_ride_share_cnt_mgr_get_dri_mgm);
 
 	ComMsg::DriQueryLog log(userId, loc);
 
-	std::shared_ptr<TlsConfigWithName> tlsCfg = std::make_shared<TlsConfigWithName>(gs_state, TlsConfig::Mode::ClientHasCert, AppNames::sk_driverMgm);
-	Decent::Net::TlsCommLayer tls(cnt.Get(), tlsCfg, true);
+	std::shared_ptr<TlsConfigWithName> tlsCfg = std::make_shared<TlsConfigWithName>(gs_state, TlsConfigWithName::Mode::ClientHasCert, AppNames::sk_driverMgm, nullptr);
+	Decent::Net::TlsCommLayer tls(cnt, tlsCfg, true, nullptr);
 
-	tls.SendStruct(cnt.Get(), k_logQuery);
-	tls.SendMsg(cnt.Get(), log.ToString());
+	tls.SendStruct(cnt, k_logQuery);
+	tls.SendContainer(cnt, log.ToString());
 
 	return true;
 }
@@ -489,9 +496,9 @@ static void DriverFindMatchReq(void* const connection, Decent::Net::TlsCommLayer
 {
 	LOGI("Process driver find match request...");
 
-	std::string msgBuf;
+	EnclaveCntTranslator cnt(connection);
 
-	tls.ReceiveMsg(connection, msgBuf);
+	std::string msgBuf = tls.RecvContainer<std::string>(cnt);
 	std::unique_ptr<ComMsg::DriverLoc> driLoc = ParseMsg<ComMsg::DriverLoc>(msgBuf);
 
 	const std::string driId = tls.GetPublicKeyPem();
@@ -506,18 +513,18 @@ static void DriverFindMatchReq(void* const connection, Decent::Net::TlsCommLayer
 
 	const ComMsg::BestMatches bestMatches = FindMatchFinal(matchesList);
 
-	tls.SendMsg(connection, bestMatches.ToString());
+	tls.SendContainer(cnt, bestMatches.ToString());
 }
 
 static void DriverConfirmMatchReq(void* const connection, Decent::Net::TlsCommLayer& tls)
 {
 	LOGI("Process driver confirm match request...");
 
+	EnclaveCntTranslator cnt(connection);
+
 	const std::string driId = GetClientIdFromTls(tls);
 
-	std::string msgBuf;
-
-	tls.ReceiveMsg(connection, msgBuf);
+	std::string msgBuf = tls.RecvContainer<std::string>(cnt);
 	std::unique_ptr<ComMsg::DriSelection> selection = ParseMsg<ComMsg::DriSelection>(msgBuf);
 
 	//verify pas contact.
@@ -557,7 +564,7 @@ static void DriverConfirmMatchReq(void* const connection, Decent::Net::TlsCommLa
 
 	selection.reset();
 
-	tls.SendMsg(connection, pasContact->ToString());
+	tls.SendContainer(cnt, pasContact->ToString());
 }
 
 extern "C" int ecall_ride_share_tm_from_pas(void* const connection)
@@ -571,13 +578,15 @@ extern "C" int ecall_ride_share_tm_from_pas(void* const connection)
 
 	LOGI("Processing message from passenger...");
 
+	EnclaveCntTranslator cnt(connection);
+
 	try
 	{
-		std::shared_ptr<TlsConfigClient> tlsCfg = std::make_shared<TlsConfigClient>(gs_state, TlsConfig::Mode::ServerVerifyPeer, AppNames::sk_passengerMgm);
-		TlsCommLayer tls(connection, tlsCfg, true);
+		std::shared_ptr<TlsConfigClient> tlsCfg = std::make_shared<TlsConfigClient>(gs_state, TlsConfigClient::Mode::ServerVerifyPeer, AppNames::sk_passengerMgm, nullptr);
+		TlsCommLayer tls(cnt, tlsCfg, true, nullptr);
 
 		NumType funcNum;
-		tls.ReceiveStruct(connection, funcNum);
+		tls.RecvStruct(funcNum);
 
 		switch (funcNum)
 		{
@@ -613,13 +622,15 @@ extern "C" int ecall_ride_share_tm_from_dri(void* const connection)
 
 	LOGI("Processing message from driver...");
 
+	EnclaveCntTranslator cnt(connection);
+
 	try
 	{
-		std::shared_ptr<TlsConfigClient> tlsCfg = std::make_shared<TlsConfigClient>(gs_state, TlsConfig::Mode::ServerVerifyPeer, AppNames::sk_driverMgm);
-		TlsCommLayer tls(connection, tlsCfg, true);
+		std::shared_ptr<TlsConfigClient> tlsCfg = std::make_shared<TlsConfigClient>(gs_state, TlsConfigClient::Mode::ServerVerifyPeer, AppNames::sk_driverMgm, nullptr);
+		TlsCommLayer tls(cnt, tlsCfg, true, nullptr);
 
 		NumType funcNum;
-		tls.ReceiveStruct(connection, funcNum);
+		tls.RecvStruct(funcNum);
 
 		switch (funcNum)
 		{

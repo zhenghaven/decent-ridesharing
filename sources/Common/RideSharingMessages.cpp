@@ -12,7 +12,13 @@
 #include <DecentApi/Common/Common.h>
 #include <DecentApi/Common/Tools/JsonTools.h>
 #include <DecentApi/Common/Tools/DataCoding.h>
+#include <DecentApi/Common/MbedTls/Drbg.h>
+#include <DecentApi/Common/MbedTls/BigNumber.h>
+#include <DecentApi/Common/MbedTls/EcKey.h>
+#include <DecentApi/Common/MbedTls/AsymKeyBase.h>
 #include <DecentApi/Common/MbedTls/Hasher.h>
+#include <DecentApi/Common/MbedTls/X509Cert.h>
+#include <DecentApi/Common/Ra/AppX509Cert.h>
 #include <DecentApi/Common/Ra/Crypto.h>
 #include <DecentApi/Common/Ra/TlsConfigWithName.h>
 #include <DecentApi/Common/Ra/States.h>
@@ -142,23 +148,20 @@ SignedQuote SignedQuote::SignQuote(const Quote& quote, Decent::Ra::States& state
 {
 	using namespace Decent::MbedTlsObj;
 
-	const std::shared_ptr<const Decent::MbedTlsObj::ECKeyPair> prvKeyPtr = state.GetKeyContainer().GetSignKeyPair();
-	const Decent::MbedTlsObj::ECKeyPair& prvKey = *prvKeyPtr;
+	const std::shared_ptr<const EcKeyPair<EcKeyType::SECP256R1> > prvKeyPtr = state.GetKeyContainer().GetSignKeyPair();
+	const EcKeyPair<EcKeyType::SECP256R1>& prvKey = *prvKeyPtr;
 	const std::shared_ptr<const Decent::MbedTlsObj::X509Cert> certPtr = state.GetCertContainer().GetCert();
 	const Decent::MbedTlsObj::X509Cert& cert = *certPtr;
 
 	std::string quoteStr = quote.ToString();
+	Decent::MbedTlsObj::Drbg drbg;
 	General256Hash hash;
 	general_secp256r1_signature_t sign;
-	Hasher::Calc<HashType::SHA256>(quoteStr, hash);
-	if (!prvKey ||
-		!prvKey.EcdsaSign(sign, hash, mbedtls_md_info_from_type(mbedtls_md_type_t::MBEDTLS_MD_SHA256)))
-	{
-		throw MessageException("Failed to sign the quote!");
-	}
+	Hasher<HashType::SHA256>().Calc(hash, quoteStr);
+	prvKey.Sign<HashType::SHA256>(hash, sign.x, sign.y, drbg);
 
 	std::string signStr = Tools::SerializeStruct(sign);
-	std::string certPemCopy = cert.ToPemString();
+	std::string certPemCopy = cert.GetPemChain();
 
 	return SignedQuote(std::move(quoteStr), std::move(signStr), std::move(certPemCopy));
 }
@@ -178,12 +181,11 @@ SignedQuote SignedQuote::ParseSignedQuote(const JsonValue& json, Decent::Ra::Sta
 	std::string signStr = ParseValue<std::string>(json[SignedQuote::sk_labelSignature]);
 	std::string certPem = ParseValue<std::string>(json[SignedQuote::sk_labelCert]);
 
-	AppX509 cert(certPem);
-	TlsConfigWithName tlsCfg(state, TlsConfigWithName::Mode::ServerVerifyPeer, appName);
+	AppX509Cert cert(certPem);
+	TlsConfigWithName tlsCfg(state, Decent::MbedTlsObj::TlsConfig::Mode::ServerVerifyPeer, appName, nullptr);
 
 	uint32_t flag;
-	if (!cert ||
-		mbedtls_x509_crt_verify_with_profile(cert.Get(), nullptr, nullptr,
+	if (mbedtls_x509_crt_verify_with_profile(cert.Get(), nullptr, nullptr,
 		&mbedtls_x509_crt_profile_suiteb, nullptr, &flag, &TlsConfigWithName::CertVerifyCallBack, &tlsCfg) != MBEDTLS_SUCCESS_RET ||
 		flag != MBEDTLS_SUCCESS_RET)
 	{
@@ -194,12 +196,9 @@ SignedQuote SignedQuote::ParseSignedQuote(const JsonValue& json, Decent::Ra::Sta
 	Tools::DeserializeStruct(sign, signStr);
 	General256Hash hash;
 
-	Hasher::Calc<HashType::SHA256>(quoteStr, hash);
-	if (!cert.GetEcPublicKey() ||
-		!cert.GetEcPublicKey().VerifySign(sign, hash.data(), hash.size()))
-	{
-		throw MessageParseException();
-	}
+	Hasher<HashType::SHA256>().Calc(hash, quoteStr);
+	const EcPublicKey<EcKeyType::SECP256R1> ecKey(cert.GetCurrPublicKey());
+	ecKey.VerifySign(hash, sign.x, sign.y);
 
 	return SignedQuote(std::move(quoteStr), std::move(signStr), std::move(certPem));
 }
@@ -229,7 +228,7 @@ Decent::General256Hash PasContact::CalcHash() const
 	using namespace Decent::MbedTlsObj;
 	Decent::General256Hash hash;
 
-	Hasher::ArrayBatchedCalc<HashType::SHA256>(hash, sk_labelName, m_name, sk_labelPhone, m_phone);
+	Hasher<HashType::SHA256>().Calc(hash, sk_labelName, m_name, sk_labelPhone, m_phone);
 
 	return std::move(hash);
 }
@@ -252,7 +251,7 @@ Decent::General256Hash DriContact::CalcHash() const
 	using namespace Decent::MbedTlsObj;
 	Decent::General256Hash hash;
 
-	Hasher::ArrayBatchedCalc<HashType::SHA256>(hash, sk_labelName, m_name, sk_labelPhone, m_phone, sk_labelLicPlate, m_licPlate);
+	Hasher<HashType::SHA256>().Calc(hash, sk_labelName, m_name, sk_labelPhone, m_phone, sk_labelLicPlate, m_licPlate);
 
 	return std::move(hash);
 }

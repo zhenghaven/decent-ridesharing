@@ -10,6 +10,7 @@
 #include <DecentApi/Common/Ra/CertContainer.h>
 #include <DecentApi/Common/Net/TlsCommLayer.h>
 #include <DecentApi/Common/Tools/JsonTools.h>
+#include <DecentApi/CommonEnclave/Net/EnclaveCntTranslator.h>
 #include <DecentApi/DecentAppEnclave/AppStatesSingleton.h>
 
 #include <rapidjson/document.h>
@@ -65,9 +66,9 @@ static void ProcessCalPriceReq(void* const connection, Decent::Net::TlsCommLayer
 {
 	LOGI("Processing calculate price request...");
 
-	std::string msgBuf;
+	EnclaveCntTranslator cnt(connection);
 
-	tls.ReceiveMsg(connection, msgBuf);
+	std::string msgBuf = tls.RecvContainer<std::string>(cnt);
 	std::unique_ptr<ComMsg::Path> pathMsg = ParseMsg<ComMsg::Path>(msgBuf);
 
 	const double price = CalPrice(pathMsg->GetPath());
@@ -75,7 +76,7 @@ static void ProcessCalPriceReq(void* const connection, Decent::Net::TlsCommLayer
 
 	ComMsg::Price priceMsg(price, OperatorPayment::GetPaymentInfo());
 
-	tls.SendMsg(connection, priceMsg.ToString());
+	tls.SendContainer(cnt, priceMsg.ToString());
 
 }
 
@@ -90,13 +91,15 @@ extern "C" int ecall_ride_share_bill_from_trip_planner(void* const connection)
 
 	LOGI("Processing message from Trip Planner...");
 
+	EnclaveCntTranslator cnt(connection);
+
 	try
 	{
-		std::shared_ptr<TlsConfigWithName> tlsCfg = std::make_shared<TlsConfigWithName>(gs_state, TlsConfig::Mode::ServerVerifyPeer, AppNames::sk_tripPlanner);
-		TlsCommLayer tls(connection, tlsCfg, true);
+		std::shared_ptr<TlsConfigWithName> tlsCfg = std::make_shared<TlsConfigWithName>(gs_state, TlsConfigWithName::Mode::ServerVerifyPeer, AppNames::sk_tripPlanner, nullptr);
+		TlsCommLayer tls(cnt, tlsCfg, true, nullptr);
 
 		NumType funcNum;
-		tls.ReceiveStruct(connection, funcNum);
+		tls.RecvStruct(cnt, funcNum);
 
 		switch (funcNum)
 		{

@@ -1,18 +1,18 @@
 #pragma once
 
 #include <memory>
+#include <string>
 
 namespace Decent
 {
 	namespace Net
 	{
-		class Connection;
-		class SmartMessages;
+		class ConnectionBase;
 	}
 
-	namespace Tools
+	namespace AppConfig
 	{
-		class ConfigManager;
+		class EnclaveList;
 	}
 }
 
@@ -20,13 +20,13 @@ namespace RideShare
 {
 	namespace ConnectionManager
 	{
-		void SetConfigManager(const Decent::Tools::ConfigManager& mgrRef);
+		void SetEnclaveList(const Decent::AppConfig::EnclaveList& list);
 
-		std::unique_ptr<Decent::Net::Connection> GetConnection2PassengerMgm(const Decent::Net::SmartMessages& hsMsg);
-		std::unique_ptr<Decent::Net::Connection> GetConnection2TripPlanner(const Decent::Net::SmartMessages& hsMsg);
-		std::unique_ptr<Decent::Net::Connection> GetConnection2TripMatcher(const Decent::Net::SmartMessages& hsMsg);
-		std::unique_ptr<Decent::Net::Connection> GetConnection2Billing(const Decent::Net::SmartMessages& hsMsg);
-		std::unique_ptr<Decent::Net::Connection> GetConnection2Payment(const Decent::Net::SmartMessages& hsMsg);
-		std::unique_ptr<Decent::Net::Connection> GetConnection2DriverMgm(const Decent::Net::SmartMessages& hsMsg);
+		std::unique_ptr<Decent::Net::ConnectionBase> GetConnection2PassengerMgm(const std::string& category);
+		std::unique_ptr<Decent::Net::ConnectionBase> GetConnection2TripPlanner(const std::string& category);
+		std::unique_ptr<Decent::Net::ConnectionBase> GetConnection2TripMatcher(const std::string& category);
+		std::unique_ptr<Decent::Net::ConnectionBase> GetConnection2Billing(const std::string& category);
+		std::unique_ptr<Decent::Net::ConnectionBase> GetConnection2Payment(const std::string& category);
+		std::unique_ptr<Decent::Net::ConnectionBase> GetConnection2DriverMgm(const std::string& category);
 	}
 }

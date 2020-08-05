@@ -1,55 +1,56 @@
 {
-	"_comment_01" : "A configuration file for Decent Ride Sharing", 
-	
-	"Enclaves" : 
+	"_comment_01" : "A configuration file for Decent Ride Sharing",
+
+	"Enclaves" :
 	{
-		"DecentServer" : 
+		"DecentServer" :
 		{
-			"Address" : "127.0.0.1", 
-			"Port" : 57755, 
-			"LoadedWhiteList" : false
-		}, 
-		"PassengerManagement" : 
+			"Address" : "127.0.0.1",
+			"Port" : 57755,
+			"LoadedWhiteList" : true,
+			"Hash" : "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+		},
+		"PassengerManagement" :
 		{
-			"Address" : "127.0.0.1", 
-			"Port" : 57756, 
-			"LoadedWhiteList" : true, 
-			"Hash" : "PassengerManagementHash"
-		}, 
-		"TripPlanner" : 
+			"Address" : "127.0.0.1",
+			"Port" : 57756,
+			"LoadedWhiteList" : true,
+			"Hash" : "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+		},
+		"TripPlanner" :
 		{
-			"Address" : "127.0.0.1", 
-			"Port" : 57757, 
-			"LoadedWhiteList" : true, 
-			"Hash" : "TripPlannerHash"
-		}, 
-		"TripMatcher" : 
+			"Address" : "127.0.0.1",
+			"Port" : 57757,
+			"LoadedWhiteList" : true,
+			"Hash" : "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+		},
+		"TripMatcher" :
 		{
-			"Address" : "127.0.0.1", 
-			"Port" : 57758, 
-			"LoadedWhiteList" : true, 
-			"Hash" : "TripMatcherHash"
-		}, 
-		"BillingServices" : 
+			"Address" : "127.0.0.1",
+			"Port" : 57758,
+			"LoadedWhiteList" : true,
+			"Hash" : "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+		},
+		"BillingServices" :
 		{
-			"Address" : "127.0.0.1", 
-			"Port" : 57759, 
-			"LoadedWhiteList" : true, 
-			"Hash" : "BillingServicesHash"
-		}, 
-		"PaymentServices" : 
+			"Address" : "127.0.0.1",
+			"Port" : 57759,
+			"LoadedWhiteList" : true,
+			"Hash" : "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+		},
+		"PaymentServices" :
 		{
-			"Address" : "127.0.0.1", 
-			"Port" : 57760, 
-			"LoadedWhiteList" : true, 
-			"Hash" : "PaymentServicesHash"
-		}, 
-		"DriverManagement" : 
+			"Address" : "127.0.0.1",
+			"Port" : 57760,
+			"LoadedWhiteList" : true,
+			"Hash" : "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+		},
+		"DriverManagement" :
 		{
-			"Address" : "127.0.0.1", 
-			"Port" : 57761, 
-			"LoadedWhiteList" : true, 
-			"Hash" : "DriverManagementHash"
+			"Address" : "127.0.0.1",
+			"Port" : 57761,
+			"LoadedWhiteList" : true,
+			"Hash" : "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
 		}
 	}
 }

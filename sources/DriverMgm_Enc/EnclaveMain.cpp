@@ -4,12 +4,16 @@
 
 #include <DecentApi/Common/Common.h>
 #include <DecentApi/Common/make_unique.h>
-#include <DecentApi/Common/Ra/ClientX509.h>
+#include <DecentApi/Common/Ra/ClientX509Cert.h>
 #include <DecentApi/Common/Ra/TlsConfigWithName.h>
 #include <DecentApi/Common/Ra/KeyContainer.h>
 #include <DecentApi/Common/Ra/CertContainer.h>
 #include <DecentApi/Common/Net/TlsCommLayer.h>
 #include <DecentApi/Common/Tools/JsonTools.h>
+#include <DecentApi/Common/MbedTls/Drbg.h>
+#include <DecentApi/Common/MbedTls/EcKey.h>
+#include <DecentApi/Common/MbedTls/X509Req.h>
+#include <DecentApi/CommonEnclave/Net/EnclaveCntTranslator.h>
 #include <DecentApi/DecentAppEnclave/AppStatesSingleton.h>
 
 #include <rapidjson/document.h>
@@ -23,6 +27,7 @@
 
 using namespace RideShare;
 using namespace Decent::Ra;
+using namespace Decent::Net;
 
 namespace
 {
@@ -82,12 +87,13 @@ static bool VerifyPayment(const std::string& pay)
 
 static void ProcessDriRegisterReq(void* const connection, Decent::Net::TlsCommLayer& tls)
 {
+	using namespace Decent::MbedTlsObj;
+
 	LOGI("Processing Driver Register Request...");
 
-	std::string msgBuf;
+	EnclaveCntTranslator cnt(connection);
 
-
-	tls.ReceiveMsg(connection, msgBuf);
+	std::string msgBuf = tls.RecvContainer<std::string>(cnt);
 	std::unique_ptr<ComMsg::DriReg> driRegInfo = ParseMsg<ComMsg::DriReg>(msgBuf);
 
 	if (!VerifyContactInfo(driRegInfo->GetContact()) ||
@@ -97,50 +103,45 @@ static void ProcessDriRegisterReq(void* const connection, Decent::Net::TlsCommLa
 		return;
 	}
 
-	const std::string& csrPem = driRegInfo->GetCsr();
-	X509Req certReq(csrPem);
+	X509Req certReq = driRegInfo->GetCsr();
+	certReq.VerifySignature();
 
-	if (!certReq)
-	{
-		return;
-	}
-
-	const std::string pubPemStr = certReq.GetEcPublicKey().ToPubPemString();
+	EcPublicKey<EcKeyType::SECP256R1> clientKey(EcPublicKey<EcKeyType::SECP256R1>(certReq.GetPublicKey()));
+	std::string driId = clientKey.GetPublicPem();
 
 	{
 		std::unique_lock<std::mutex> profileMapLock(gs_profileMapMutex);
-		if (gsk_profileMap.find(pubPemStr) != gsk_profileMap.cend())
+		if (gsk_profileMap.find(driId) != gsk_profileMap.cend())
 		{
 			LOGI("Client profile already exist.");
 			return;
 		}
 	}
+	std::shared_ptr<const AppX509Cert> cert = gs_state.GetAppCertContainer().GetAppCert();
 
-	std::shared_ptr<const Decent::MbedTlsObj::ECKeyPair> prvKey = gs_state.GetKeyContainer().GetSignKeyPair();
-	std::shared_ptr<const AppX509> cert = gs_state.GetAppCertContainer().GetAppCert();
-
-	if (!certReq.VerifySignature() ||
-		!certReq.GetEcPublicKey() ||
-		!prvKey || !*prvKey ||
-		!cert || !*cert)
+	if (!cert)
 	{
+		LOGW("Decent App private key and certificate hasn't been initialized yet.");
 		return;
 	}
 
+	EcKeyPair<EcKeyType::SECP256R1> prvKey = EcKeyPair<EcKeyType::SECP256R1>(*(gs_state.GetKeyContainer().GetSignKeyPair()));
+
 	const ComMsg::DriContact& contact = driRegInfo->GetContact();
-	ClientX509 clientCert(certReq.GetEcPublicKey(), *cert, *prvKey, "Decent_RideShare_Driver_",
+	ClientX509CertWriter clientCert(clientKey, *cert, prvKey, "Decent_RideShare_Driver",
 		cppcodec::base64_rfc4648::encode(contact.CalcHash()));
 
 	{
 		std::unique_lock<std::mutex> pasProfilesLock(gs_profileMapMutex);
 
-		gs_profileMap.insert(std::make_pair(pubPemStr,
+		gs_profileMap.insert(std::make_pair(driId,
 			DriProfileItem(contact, driRegInfo->GetPayment(), driRegInfo->GetDriLic())));
 
 		LOGI("Client profile added. Profile store size: %llu.", gsk_profileMap.size());
 	}
 
-	tls.SendMsg(connection, clientCert.ToPemString());
+	Drbg drbg;
+	tls.SendContainer(cnt, clientCert.GeneratePemChain(drbg));
 
 }
 
@@ -148,9 +149,9 @@ static void LogQuery(void* const connection, Decent::Net::TlsCommLayer& tls)
 {
 	LOGI("Logging driver's query...");
 
-	std::string msgBuf;
+	EnclaveCntTranslator cnt(connection);
 
-	tls.ReceiveMsg(connection, msgBuf);
+	std::string msgBuf = tls.RecvContainer<std::string>(cnt);
 	std::unique_ptr<ComMsg::DriQueryLog> queryLog = ParseMsg<ComMsg::DriQueryLog>(msgBuf);
 
 	const ComMsg::Point2D<double>& loc = queryLog->GetLoc();
@@ -165,8 +166,9 @@ static void RequestPaymentInfo(void* const connection, Decent::Net::TlsCommLayer
 {
 	LOGI("Processing payment info request...");
 
-	std::string driId;
-	tls.ReceiveMsg(connection, driId);
+	EnclaveCntTranslator cnt(connection);
+
+	std::string driId = tls.RecvContainer<std::string>(cnt);
 
 	LOGI("Looking for payment info of driver:\n %s", driId.c_str());
 
@@ -186,7 +188,7 @@ static void RequestPaymentInfo(void* const connection, Decent::Net::TlsCommLayer
 
 	ComMsg::RequestedPayment payInfo(std::move(driPayInfo), std::move(selfPayInfo));
 
-	tls.SendMsg(connection, payInfo.ToString());
+	tls.SendContainer(cnt, payInfo.ToString());
 }
 
 extern "C" int ecall_ride_share_dm_from_dri(void* const connection)
@@ -200,13 +202,15 @@ extern "C" int ecall_ride_share_dm_from_dri(void* const connection)
 
 	LOGI("Processing message from driver...");
 
+	EnclaveCntTranslator cnt(connection);
+
 	try
 	{
-		std::shared_ptr<TlsConfigWithName> tlsCfg = std::make_shared<TlsConfigWithName>(gs_state, TlsConfig::Mode::ServerNoVerifyPeer, "NaN");
-		Decent::Net::TlsCommLayer tls(connection, tlsCfg, false);
+		std::shared_ptr<TlsConfigWithName> tlsCfg = std::make_shared<TlsConfigWithName>(gs_state, TlsConfigWithName::Mode::ServerNoVerifyPeer, "NaN", nullptr);
+		Decent::Net::TlsCommLayer tls(cnt, tlsCfg, false, nullptr);
 
 		NumType funcNum;
-		tls.ReceiveStruct(connection, funcNum);
+		tls.RecvStruct(cnt, funcNum);
 
 		switch (funcNum)
 		{
@@ -236,13 +240,15 @@ extern "C" int ecall_ride_share_dm_from_trip_matcher(void* const connection)
 
 	LOGI("Processing message from Trip Matcher...");
 
+	EnclaveCntTranslator cnt(connection);
+
 	try
 	{
-		std::shared_ptr<TlsConfigWithName> tlsCfg = std::make_shared<TlsConfigWithName>(gs_state, TlsConfig::Mode::ServerVerifyPeer, AppNames::sk_tripMatcher);
-		Decent::Net::TlsCommLayer tls(connection, tlsCfg, true);
+		std::shared_ptr<TlsConfigWithName> tlsCfg = std::make_shared<TlsConfigWithName>(gs_state, TlsConfigWithName::Mode::ServerVerifyPeer, AppNames::sk_tripMatcher, nullptr);
+		Decent::Net::TlsCommLayer tls(cnt, tlsCfg, true, nullptr);
 
 		NumType funcNum;
-		tls.ReceiveStruct(connection, funcNum);
+		tls.RecvStruct(cnt, funcNum);
 
 		switch (funcNum)
 		{
@@ -273,13 +279,15 @@ extern "C" int ecall_ride_share_dm_from_payment(void* const connection)
 
 	LOGI("Processing message from Payment Services...");
 
+	EnclaveCntTranslator cnt(connection);
+
 	try
 	{
-		std::shared_ptr<TlsConfigWithName> tlsCfg = std::make_shared<TlsConfigWithName>(gs_state, TlsConfig::Mode::ServerVerifyPeer, AppNames::sk_payment);
-		Decent::Net::TlsCommLayer tls(connection, tlsCfg, true);
+		std::shared_ptr<TlsConfigWithName> tlsCfg = std::make_shared<TlsConfigWithName>(gs_state, TlsConfigWithName::Mode::ServerVerifyPeer, AppNames::sk_payment, nullptr);
+		Decent::Net::TlsCommLayer tls(cnt, tlsCfg, true, nullptr);
 
 		NumType funcNum;
-		tls.ReceiveStruct(connection, funcNum);
+		tls.RecvStruct(cnt, funcNum);
 
 		switch (funcNum)
 		{

@@ -11,13 +11,13 @@ namespace RideShare
 
 		virtual ~DriverMgm() {}
 
-		virtual bool ProcessMsgFromDriver(Decent::Net::Connection& connection);
+		virtual bool ProcessMsgFromDriver(Decent::Net::ConnectionBase& connection);
 
-		virtual bool ProcessMsgFromTripMatcher(Decent::Net::Connection& connection);
+		virtual bool ProcessMsgFromTripMatcher(Decent::Net::ConnectionBase& connection);
 
-		virtual bool ProcessMsgFromPayment(Decent::Net::Connection& connection);
+		virtual bool ProcessMsgFromPayment(Decent::Net::ConnectionBase& connection);
 
-		virtual bool ProcessSmartMessage(const std::string& category, const Json::Value& jsonMsg, Decent::Net::Connection& connection) override;
+		virtual bool ProcessSmartMessage(const std::string& category, Decent::Net::ConnectionBase& connection, Decent::Net::ConnectionBase*& freeHeldCnt) override;
 
 	};
 }

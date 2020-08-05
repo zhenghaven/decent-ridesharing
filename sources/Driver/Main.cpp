@@ -1,4 +1,4 @@
-
+#include <boost/filesystem.hpp>
 #include <tclap/CmdLine.h>
 #include <json/json.h>
 
@@ -6,40 +6,45 @@
 #include <DecentApi/Common/Net/TlsCommLayer.h>
 #include <DecentApi/Common/Tools/JsonTools.h>
 #include <DecentApi/Common/Ra/Crypto.h>
-#include <DecentApi/Common/Ra/ClientX509.h>
+#include <DecentApi/Common/Ra/ServerX509Cert.h>
+#include <DecentApi/Common/Ra/ClientX509Cert.h>
 #include <DecentApi/Common/Ra/TlsConfigWithName.h>
 #include <DecentApi/Common/Ra/KeyContainer.h>
 #include <DecentApi/Common/Ra/CertContainer.h>
-#include <DecentApi/Common/Ra/WhiteList/Loaded.h>
+#include <DecentApi/Common/Ra/WhiteList/LoadedList.h>
 #include <DecentApi/Common/Ra/StatesSingleton.h>
+#include <DecentApi/Common/MbedTls/EcKey.h>
+#include <DecentApi/Common/MbedTls/Drbg.h>
+#include <DecentApi/Common/MbedTls/X509Req.h>
 
 #include <DecentApi/CommonApp/Net/TCPConnection.h>
-#include <DecentApi/CommonApp/Tools/ConfigManager.h>
+#include <DecentApi/CommonApp/Tools/DiskFile.h>
+
+#include <DecentApi/DecentAppApp/DecentAppConfig.h>
 
 #include "../Common/AppNames.h"
 #include "../Common/RideSharingMessages.h"
 #include "../Common/RideSharingFuncNums.h"
-#include "../Common_App/Tools.h"
 #include "../Common_App/ConnectionManager.h"
-#include "../Common_App/RideSharingMessages.h"
+#include "../Common_App/RequestCategory.h"
 
 using namespace RideShare;
-using namespace RideShare::Tools;
 using namespace Decent;
 using namespace Decent::Tools;
 using namespace Decent::Net;
 using namespace Decent::Ra;
 using namespace Decent::Ra::WhiteList;
+using namespace Decent::AppConfig;
 
 namespace
 {
 	static Ra::States& gs_state = Ra::GetStateSingleton();
 }
 
-bool RegesterCert(Net::Connection& con, const ComMsg::DriContact& contact);
-std::unique_ptr<ComMsg::BestMatches> SendQuery(Net::Connection& con);
-bool ConfirmMatch(Net::Connection& con, const ComMsg::DriContact& contact, const std::string& tripId);
-bool TripStartOrEnd(Net::Connection& con, const std::string& tripId, const bool isStart);
+bool RegesterCert(Net::ConnectionBase& con, const ComMsg::DriContact& contact);
+std::unique_ptr<ComMsg::BestMatches> SendQuery(Net::ConnectionBase& con);
+bool ConfirmMatch(Net::ConnectionBase& con, const ComMsg::DriContact& contact, const std::string& tripId);
+bool TripStartOrEnd(Net::ConnectionBase& con, const std::string& tripId, const bool isStart);
 
 template<typename MsgType>
 static std::unique_ptr<MsgType> ParseMsg(const std::string& msgStr)
@@ -75,25 +80,39 @@ int main(int argc, char ** argv)
 
 	cmd.parse(argc, argv);
 
-	std::string configJsonStr;
-	if (!GetConfigurationJsonString(configPathArg.getValue(), configJsonStr))
+	//------- Read configuration file:
+	std::unique_ptr<DecentAppConfig> configMgr;
+	try
 	{
-		PRINT_I("Failed to load configuration file.");
+		std::string configJsonStr;
+		DiskFile file(configPathArg.getValue(), FileBase::Mode::Read, true);
+		configJsonStr.resize(file.GetFileSize());
+		file.ReadBlockExactSize(configJsonStr);
+
+		configMgr = std::make_unique<DecentAppConfig>(configJsonStr);
+	}
+	catch (const std::exception& e)
+	{
+		PRINT_W("Failed to load configuration file. Error Msg: %s", e.what());
 		return -1;
 	}
-	ConfigManager configManager(configJsonStr);
-	ConnectionManager::SetConfigManager(configManager);
 
-	Loaded loadedWhiteList(configManager.GetLoadedWhiteList().GetMap());
+	//------- Setup connection manager:
+	ConnectionManager::SetEnclaveList(configMgr->GetEnclaveList());
+
+	//------- Setup key and certificates:
+	WhiteList::LoadedList loadedWhiteList(configMgr->GetEnclaveList().GetLoadedWhiteList().GetMap());
 
 	//Setting Loaded whitelist.
 	gs_state.GetLoadedWhiteList(&loadedWhiteList);
 
 	//Setting up a temporary certificate.
-	std::shared_ptr<Decent::Ra::ServerX509> cert = std::make_shared<Decent::Ra::ServerX509>(
-		*gs_state.GetKeyContainer().GetSignKeyPair(), "HashTemp", "PlatformTemp", "ReportTemp"
-		);
-	if (!cert || !*cert)
+	auto keyPair = MbedTlsObj::EcKeyPair<MbedTlsObj::EcKeyType::SECP256R1>(*(gs_state.GetKeyContainer().GetSignKeyPair()));
+	Decent::Ra::ServerX509CertWriter certWrt(keyPair, "HashTemp", "PlatformTemp", "ReportTemp");
+
+	MbedTlsObj::Drbg drbg;
+	std::shared_ptr<Decent::Ra::ServerX509Cert> cert = std::make_shared<Decent::Ra::ServerX509Cert>(certWrt.GenerateDer(drbg));
+	if (!cert)
 	{
 		return -1;
 	}
@@ -101,10 +120,10 @@ int main(int argc, char ** argv)
 
 	ComMsg::DriContact contact("driFirst driLast", "1234567890", "LicensePlateHere");
 
-	std::unique_ptr<Net::Connection> appCon;
+	std::unique_ptr<Net::ConnectionBase> appCon;
 
 	Pause("register");
-	appCon = ConnectionManager::GetConnection2DriverMgm(FromDriver());
+	appCon = ConnectionManager::GetConnection2DriverMgm(RequestCategory::sk_fromDriver);
 	if (!RegesterCert(*appCon, contact))
 	{
 		return -1;
@@ -112,7 +131,7 @@ int main(int argc, char ** argv)
 
 	Pause("find closest passengers");
 	std::unique_ptr<ComMsg::BestMatches> matches;
-	appCon = ConnectionManager::GetConnection2TripMatcher(FromDriver());
+	appCon = ConnectionManager::GetConnection2TripMatcher(RequestCategory::sk_fromDriver);
 	if (!(matches = SendQuery(*appCon)) ||
 		matches->GetMatches().size() == 0)
 	{
@@ -120,7 +139,7 @@ int main(int argc, char ** argv)
 	}
 
 	Pause("pick first closest passenger");
-	appCon = ConnectionManager::GetConnection2TripMatcher(FromDriver());
+	appCon = ConnectionManager::GetConnection2TripMatcher(RequestCategory::sk_fromDriver);
 	const ComMsg::MatchItem& firstItem = matches->GetMatches()[0];
 	const std::string tripId = firstItem.GetTripId();
 	if (!ConfirmMatch(*appCon, contact, tripId))
@@ -129,14 +148,14 @@ int main(int argc, char ** argv)
 	}
 
 	Pause("start trip");
-	appCon = ConnectionManager::GetConnection2TripMatcher(FromDriver());
+	appCon = ConnectionManager::GetConnection2TripMatcher(RequestCategory::sk_fromDriver);
 	if (!TripStartOrEnd(*appCon, tripId, true))
 	{
 		return -1;
 	}
 
 	Pause("end trip");
-	appCon = ConnectionManager::GetConnection2TripMatcher(FromDriver());
+	appCon = ConnectionManager::GetConnection2TripMatcher(RequestCategory::sk_fromDriver);
 	if (!TripStartOrEnd(*appCon, tripId, false))
 	{
 		return -1;
@@ -146,25 +165,27 @@ int main(int argc, char ** argv)
 	return 0;
 }
 
-bool RegesterCert(Net::Connection& con, const ComMsg::DriContact& contact)
+bool RegesterCert(Net::ConnectionBase& con, const ComMsg::DriContact& contact)
 {
 	using namespace EncFunc::DriverMgm;
+	using namespace MbedTlsObj;
 
-	Ra::X509Req certReq(*gs_state.GetKeyContainer().GetSignKeyPair(), "Driver");
+	auto keyPair = EcKeyPair<EcKeyType::SECP256R1>(*(gs_state.GetKeyContainer().GetSignKeyPair()));
 
-	ComMsg::DriReg regMsg(contact, "-Driver Pay Info-", certReq.ToPemString(), "DriLicense");
+	X509ReqWriter certReq(HashType::SHA256, keyPair, "CN=Driver");
 
-	std::shared_ptr<TlsConfigWithName> tlsCfg = std::make_shared<TlsConfigWithName>(gs_state, TlsConfig::Mode::ClientNoCert, AppNames::sk_driverMgm);
-	Decent::Net::TlsCommLayer tls(&con, tlsCfg, true);
+	Drbg drbg;
+	ComMsg::DriReg regMsg(contact, "-Driver Pay Info-", certReq.GeneratePem(drbg), "DriLicense");
 
-	std::string msgBuf;
+	std::shared_ptr<TlsConfigWithName> tlsCfg = std::make_shared<TlsConfigWithName>(gs_state, TlsConfigWithName::Mode::ClientNoCert, AppNames::sk_driverMgm, nullptr);
+	Decent::Net::TlsCommLayer tls(con, tlsCfg, true, nullptr);
 
 	tls.SendStruct(k_userReg);
-	tls.SendMsg(regMsg.ToString());
-	tls.ReceiveMsg(msgBuf);
+	tls.SendContainer(regMsg.ToString());
+	std::string msgBuf = tls.RecvContainer<std::string>();
 
-	std::shared_ptr<ClientX509> cert = std::make_shared<ClientX509>(msgBuf);
-	if (!cert || !*cert)
+	std::shared_ptr<ClientX509Cert> cert = std::make_shared<ClientX509Cert>(msgBuf);
+	if (!cert)
 	{
 		return false;
 	}
@@ -175,49 +196,54 @@ bool RegesterCert(Net::Connection& con, const ComMsg::DriContact& contact)
 	return true;
 }
 
-std::unique_ptr<ComMsg::BestMatches> SendQuery(Net::Connection& con)
+std::unique_ptr<ComMsg::BestMatches> SendQuery(Net::ConnectionBase& con)
 {
 	using namespace EncFunc::TripMatcher;
 
 	ComMsg::DriverLoc DriLoc(ComMsg::Point2D<double>(1.1, 1.2));
 
-	std::shared_ptr<TlsConfigWithName> tlsCfg = std::make_shared<TlsConfigWithName>(gs_state, TlsConfig::Mode::ClientHasCert, AppNames::sk_tripMatcher);
-	TlsCommLayer tls(&con, tlsCfg, true);
+	std::shared_ptr<TlsConfigWithName> tlsCfg = std::make_shared<TlsConfigWithName>(gs_state, TlsConfigWithName::Mode::ClientHasCert, AppNames::sk_tripMatcher, nullptr);
+	TlsCommLayer tls(con, tlsCfg, true, nullptr);
 
-	std::string msgBuf;
 	tls.SendStruct(k_findMatch);
-	tls.SendMsg(DriLoc.ToString());
-	tls.ReceiveMsg(msgBuf);
+	tls.SendContainer(DriLoc.ToString());
+	std::string msgBuf = tls.RecvContainer<std::string>();
 
 	std::unique_ptr<ComMsg::BestMatches> matchesMsg = ParseMsg<ComMsg::BestMatches>(msgBuf);
 
 	const std::vector<ComMsg::MatchItem>& matches = matchesMsg->GetMatches();
-	PRINT_I("Found Matches:");
-	for (const ComMsg::MatchItem& match : matches)
+
+	if (matches.size() == 0)
 	{
-		PRINT_I("\tID: %s, Ori: (%f, %f), Dest: (%f, %f).",
-			match.GetTripId().c_str(),
-			match.GetPath().GetPath().front().GetX(), match.GetPath().GetPath().front().GetY(),
-			match.GetPath().GetPath().back().GetX(), match.GetPath().GetPath().back().GetY());
+		PRINT_I("No match found.");
+	}
+	else
+	{
+		PRINT_I("Found Matches:");
+		for (const ComMsg::MatchItem& match : matches)
+		{
+			PRINT_I("\tID: %s, Ori: (%f, %f), Dest: (%f, %f).",
+				match.GetTripId().c_str(),
+				match.GetPath().GetPath().front().GetX(), match.GetPath().GetPath().front().GetY(),
+				match.GetPath().GetPath().back().GetX(), match.GetPath().GetPath().back().GetY());
+		}
 	}
 
 	return std::move(matchesMsg);
 }
 
-bool ConfirmMatch(Net::Connection& con, const ComMsg::DriContact& contact, const std::string& tripId)
+bool ConfirmMatch(Net::ConnectionBase& con, const ComMsg::DriContact& contact, const std::string& tripId)
 {
 	using namespace EncFunc::TripMatcher;
 
 	ComMsg::DriSelection driSelection(contact, tripId);
 
-	std::shared_ptr<TlsConfigWithName> tlsCfg = std::make_shared<TlsConfigWithName>(gs_state, TlsConfig::Mode::ClientHasCert, AppNames::sk_tripMatcher);
-	Decent::Net::TlsCommLayer tls(&con, tlsCfg, true);
-	
-	std::string msgBuf;
+	std::shared_ptr<TlsConfigWithName> tlsCfg = std::make_shared<TlsConfigWithName>(gs_state, TlsConfigWithName::Mode::ClientHasCert, AppNames::sk_tripMatcher, nullptr);
+	Decent::Net::TlsCommLayer tls(con, tlsCfg, true, nullptr);
 
 	tls.SendStruct(k_confirmMatch);
-	tls.SendMsg(driSelection.ToString());
-	tls.ReceiveMsg(msgBuf);
+	tls.SendContainer(driSelection.ToString());
+	std::string msgBuf = tls.RecvContainer<std::string>();
 	std::unique_ptr<ComMsg::PasContact> pasContact = ParseMsg<ComMsg::PasContact>(msgBuf);
 
 	PRINT_I("Matched Passenger:");
@@ -227,15 +253,15 @@ bool ConfirmMatch(Net::Connection& con, const ComMsg::DriContact& contact, const
 	return true;
 }
 
-bool TripStartOrEnd(Net::Connection& con, const std::string& tripId, const bool isStart)
+bool TripStartOrEnd(Net::ConnectionBase& con, const std::string& tripId, const bool isStart)
 {
 	using namespace EncFunc::TripMatcher;
 
-	std::shared_ptr<TlsConfigWithName> tlsCfg = std::make_shared<TlsConfigWithName>(gs_state, TlsConfig::Mode::ClientHasCert, AppNames::sk_tripMatcher);
-	Decent::Net::TlsCommLayer tls(&con, tlsCfg, true);
+	std::shared_ptr<TlsConfigWithName> tlsCfg = std::make_shared<TlsConfigWithName>(gs_state, TlsConfigWithName::Mode::ClientHasCert, AppNames::sk_tripMatcher, nullptr);
+	Decent::Net::TlsCommLayer tls(con, tlsCfg, true, nullptr);
 
 	tls.SendStruct(isStart ? k_tripStart : k_tripEnd);
-	tls.SendMsg(tripId);
+	tls.SendContainer(tripId);
 
 	PRINT_I("Trip %s.", isStart ? "started" : "ended");
 

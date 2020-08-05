@@ -6,12 +6,16 @@
 
 #include <DecentApi/Common/Common.h>
 #include <DecentApi/Common/make_unique.h>
-#include <DecentApi/Common/Ra/ClientX509.h>
+#include <DecentApi/Common/Ra/ClientX509Cert.h>
 #include <DecentApi/Common/Ra/TlsConfigWithName.h>
 #include <DecentApi/Common/Ra/KeyContainer.h>
 #include <DecentApi/Common/Ra/CertContainer.h>
 #include <DecentApi/Common/Net/TlsCommLayer.h>
 #include <DecentApi/Common/Tools/JsonTools.h>
+#include <DecentApi/Common/MbedTls/Drbg.h>
+#include <DecentApi/Common/MbedTls/EcKey.h>
+#include <DecentApi/Common/MbedTls/X509Req.h>
+#include <DecentApi/CommonEnclave/Net/EnclaveCntTranslator.h>
 #include <DecentApi/DecentAppEnclave/AppStatesSingleton.h>
 
 #include <rapidjson/document.h>
@@ -70,11 +74,13 @@ namespace
 
 static void ProcessPasRegisterReq(void* const connection, Decent::Net::TlsCommLayer& tls)
 {
+	using namespace Decent::MbedTlsObj;
+
 	LOGI("Processing Passenger Register Request...");
 
-	std::string msgBuf;
+	EnclaveCntTranslator cnt(connection);
 
-	tls.ReceiveMsg(connection, msgBuf);
+	std::string msgBuf = tls.RecvContainer<std::string>(cnt);
 	std::unique_ptr<ComMsg::PasReg> pasRegInfo = ParseMsg<ComMsg::PasReg>(msgBuf);
 
 	if (!VerifyContactInfo(pasRegInfo->GetContact()))
@@ -83,14 +89,10 @@ static void ProcessPasRegisterReq(void* const connection, Decent::Net::TlsCommLa
 	}
 
 	X509Req certReq = pasRegInfo->GetCsr();
-	if (!certReq ||
-		!certReq.VerifySignature() ||
-		!certReq.GetEcPublicKey())
-	{
-		return;
-	}
+	certReq.VerifySignature();
 
-	const std::string pasId = certReq.GetEcPublicKey().ToPubPemString();
+	EcPublicKey<EcKeyType::SECP256R1> clientKey(EcPublicKey<EcKeyType::SECP256R1>(certReq.GetPublicKey()));
+	std::string pasId = clientKey.GetPublicPem();
 
 	{
 		std::unique_lock<std::mutex> pasProfilesLock(gs_pasProfilesMutex);
@@ -100,17 +102,17 @@ static void ProcessPasRegisterReq(void* const connection, Decent::Net::TlsCommLa
 			return;
 		}
 	}
+	std::shared_ptr<const AppX509Cert> cert = gs_state.GetAppCertContainer().GetAppCert();
 
-	std::shared_ptr<const Decent::MbedTlsObj::ECKeyPair> prvKey = gs_state.GetKeyContainer().GetSignKeyPair();
-	std::shared_ptr<const AppX509> cert = gs_state.GetAppCertContainer().GetAppCert();
-
-	if (!prvKey || !*prvKey ||
-		!cert || !*cert)
+	if (!cert)
 	{
+		LOGW("Decent App private key and certificate hasn't been initialized yet.");
 		return;
 	}
 
-	ClientX509 clientCert(certReq.GetEcPublicKey(), *cert, *prvKey, "Decent_RideShare_Passenger", 
+	EcKeyPair<EcKeyType::SECP256R1> prvKey = EcKeyPair<EcKeyType::SECP256R1>(*(gs_state.GetKeyContainer().GetSignKeyPair()));
+
+	ClientX509CertWriter clientCert(clientKey, *cert, prvKey, "Decent_RideShare_Passenger",
 		cppcodec::base64_rfc4648::encode(pasRegInfo->GetContact().CalcHash()));
 
 	{
@@ -122,7 +124,8 @@ static void ProcessPasRegisterReq(void* const connection, Decent::Net::TlsCommLa
 		LOGI("Client profile added. Profile store size: %llu.", gsk_pasProfiles.size());
 	}
 
-	tls.SendMsg(connection, clientCert.ToPemString());
+	Drbg drbg;
+	tls.SendContainer(cnt, clientCert.GeneratePemChain(drbg));
 
 }
 
@@ -137,13 +140,15 @@ extern "C" int ecall_ride_share_pm_from_pas(void* const connection)
 
 	LOGI("Processing message from passenger...");
 
+	EnclaveCntTranslator cnt(connection);
+
 	try
 	{
-		std::shared_ptr<TlsConfigWithName> tlsCfg = std::make_shared<TlsConfigWithName>(gs_state, TlsConfig::Mode::ServerNoVerifyPeer, "NaN");
-		TlsCommLayer tls(connection, tlsCfg, false);
+		std::shared_ptr<TlsConfigWithName> tlsCfg = std::make_shared<TlsConfigWithName>(gs_state, TlsConfigWithName::Mode::ServerNoVerifyPeer, "NaN", nullptr);
+		TlsCommLayer tls(cnt, tlsCfg, false, nullptr);
 
 		NumType funcNum;
-		tls.ReceiveStruct(connection, funcNum);
+		tls.RecvStruct(cnt, funcNum);
 
 		switch (funcNum)
 		{
@@ -166,9 +171,9 @@ static void LogQuery(void* const connection, Decent::Net::TlsCommLayer& tls)
 {
 	LOGI("Logging Passenger Query...");
 
-	std::string msgBuf;
+	EnclaveCntTranslator cnt(connection);
 
-	tls.ReceiveMsg(connection, msgBuf);
+	std::string msgBuf = tls.RecvContainer<std::string>(cnt);
 	std::unique_ptr<ComMsg::PasQueryLog> queryLog = ParseMsg<ComMsg::PasQueryLog>(msgBuf);
 
 	const ComMsg::GetQuote& getQuote = queryLog->GetGetQuote();
@@ -191,13 +196,15 @@ extern "C" int ecall_ride_share_pm_from_trip_planner(void* const connection)
 
 	LOGI("Processing message from Trip Planner...");
 
+	EnclaveCntTranslator cnt(connection);
+
 	try
 	{
-		std::shared_ptr<TlsConfigWithName> tlsCfg = std::make_shared<TlsConfigWithName>(gs_state, TlsConfig::Mode::ServerVerifyPeer, AppNames::sk_tripPlanner);
-		TlsCommLayer tls(connection, tlsCfg, true);
+		std::shared_ptr<TlsConfigWithName> tlsCfg = std::make_shared<TlsConfigWithName>(gs_state, TlsConfigWithName::Mode::ServerVerifyPeer, AppNames::sk_tripPlanner, nullptr);
+		TlsCommLayer tls(cnt, tlsCfg, true, nullptr);
 
 		NumType funcNum;
-		tls.ReceiveStruct(connection, funcNum);
+		tls.RecvStruct(cnt, funcNum);
 
 		switch (funcNum)
 		{
@@ -220,8 +227,9 @@ static void RequestPaymentInfo(void* const connection, Decent::Net::TlsCommLayer
 {
 	LOGI("Processing payment info request...");
 
-	std::string pasId;
-	tls.ReceiveMsg(connection, pasId);
+	EnclaveCntTranslator cnt(connection);
+
+	std::string pasId = tls.RecvContainer<std::string>(cnt);
 
 	std::string pasPayInfo;
 	std::string selfPayInfo = OperatorPayment::GetPaymentInfo();
@@ -239,7 +247,7 @@ static void RequestPaymentInfo(void* const connection, Decent::Net::TlsCommLayer
 
 	ComMsg::RequestedPayment payInfo(std::move(pasPayInfo), std::move(selfPayInfo));
 
-	tls.SendMsg(connection, payInfo.ToString());
+	tls.SendContainer(cnt, payInfo.ToString());
 }
 
 extern "C" int ecall_ride_share_pm_from_payment(void* const connection)
@@ -253,13 +261,15 @@ extern "C" int ecall_ride_share_pm_from_payment(void* const connection)
 
 	LOGI("Processing message from Payment Services...");
 
+	EnclaveCntTranslator cnt(connection);
+
 	try
 	{
-		std::shared_ptr<TlsConfigWithName> payTlsCfg = std::make_shared<TlsConfigWithName>(gs_state, TlsConfig::Mode::ServerVerifyPeer, AppNames::sk_payment);
-		TlsCommLayer tls(connection, payTlsCfg, true);
+		std::shared_ptr<TlsConfigWithName> payTlsCfg = std::make_shared<TlsConfigWithName>(gs_state, TlsConfigWithName::Mode::ServerVerifyPeer, AppNames::sk_payment, nullptr);
+		TlsCommLayer tls(cnt, payTlsCfg, true, nullptr);
 
 		NumType funcNum;
-		tls.ReceiveStruct(connection, funcNum);
+		tls.RecvStruct(cnt, funcNum);
 
 		switch (funcNum)
 		{

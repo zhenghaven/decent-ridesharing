@@ -6,7 +6,8 @@
 #include <DecentApi/Common/Ra/TlsConfigClient.h>
 #include <DecentApi/Common/Net/TlsCommLayer.h>
 #include <DecentApi/Common/Tools/JsonTools.h>
-#include <DecentApi/CommonEnclave/SGX/OcallConnector.h>
+#include <DecentApi/CommonEnclave/Net/EnclaveConnectionOwner.h>
+#include <DecentApi/CommonEnclave/Net/EnclaveCntTranslator.h>
 #include <DecentApi/DecentAppEnclave/AppStatesSingleton.h>
 
 #include <rapidjson/document.h>
@@ -50,15 +51,15 @@ static bool SendQueryLog(const std::string& userId, const ComMsg::GetQuote& getQ
 	using namespace EncFunc::PassengerMgm;
 	LOGI("Connecting to a Passenger Management...");
 
-	OcallConnector cnt(&ocall_ride_share_cnt_mgr_get_pas_mgm);
+	EnclaveConnectionOwner cnt = EnclaveConnectionOwner::CntBuilder(SGX_SUCCESS, &ocall_ride_share_cnt_mgr_get_pas_mgm);
 
 	ComMsg::PasQueryLog log(userId, getQuote);
 
-	std::shared_ptr<TlsConfigWithName> pasMgmTlsCfg = std::make_shared<TlsConfigWithName>(gs_state, TlsConfig::Mode::ClientHasCert, AppNames::sk_passengerMgm);
-	Decent::Net::TlsCommLayer pasMgmTls(cnt.Get(), pasMgmTlsCfg, true);
+	std::shared_ptr<TlsConfigWithName> pasMgmTlsCfg = std::make_shared<TlsConfigWithName>(gs_state, TlsConfigWithName::Mode::ClientHasCert, AppNames::sk_passengerMgm, nullptr);
+	Decent::Net::TlsCommLayer pasMgmTls(cnt, pasMgmTlsCfg, true, nullptr);
 	
-	pasMgmTls.SendStruct(cnt.Get(), k_logQuery);
-	pasMgmTls.SendMsg(cnt.Get(), log.ToString());
+	pasMgmTls.SendStruct(cnt, k_logQuery);
+	pasMgmTls.SendContainer(cnt, log.ToString());
 
 	return true;
 }
@@ -67,16 +68,16 @@ static std::unique_ptr<ComMsg::Price> GetPriceFromBilling(const ComMsg::Path& pa
 {
 	using namespace EncFunc::Billing;
 	LOGI("Querying Billing Service for price...");
-	OcallConnector cnt(&ocall_ride_share_cnt_mgr_get_billing);
+	EnclaveConnectionOwner cnt = EnclaveConnectionOwner::CntBuilder(SGX_SUCCESS, &ocall_ride_share_cnt_mgr_get_billing);
 
-	std::shared_ptr<TlsConfigWithName> bsTlsCfg = std::make_shared<TlsConfigWithName>(gs_state, TlsConfig::Mode::ClientHasCert, AppNames::sk_billing);
-	Decent::Net::TlsCommLayer bsTls(cnt.Get(), bsTlsCfg, true);
+	std::shared_ptr<TlsConfigWithName> bsTlsCfg = std::make_shared<TlsConfigWithName>(gs_state, TlsConfigWithName::Mode::ClientHasCert, AppNames::sk_billing, nullptr);
+	Decent::Net::TlsCommLayer bsTls(cnt, bsTlsCfg, true, nullptr);
 
 	std::string msgBuf;
 
-	bsTls.SendStruct(cnt.Get(), k_calPrice);
-	bsTls.SendMsg(cnt.Get(), pathMsg.ToString());
-	bsTls.ReceiveMsg(cnt.Get(), msgBuf);
+	bsTls.SendStruct(cnt, k_calPrice);
+	bsTls.SendContainer(cnt, pathMsg.ToString());
+	msgBuf = bsTls.RecvContainer<std::string>(cnt);
 	std::unique_ptr<ComMsg::Price> price = ParseMsg<ComMsg::Price>(msgBuf);
 
 	return std::move(price);
@@ -86,9 +87,9 @@ static void ProcessGetQuote(void* const connection, Decent::Net::TlsCommLayer& t
 {
 	LOGI("Process Get Quote Request.");
 
-	std::string msgBuf;
-	
-	tls.ReceiveMsg(connection, msgBuf);
+	EnclaveCntTranslator cnt(connection);
+
+	std::string msgBuf = tls.RecvContainer<std::string>(cnt);
 	std::unique_ptr<ComMsg::GetQuote> getQuote = ParseMsg<ComMsg::GetQuote>(msgBuf);
 
 	const std::string pasId = tls.GetPublicKeyPem();
@@ -115,7 +116,7 @@ static void ProcessGetQuote(void* const connection, Decent::Net::TlsCommLayer& t
 	ComMsg::Quote quote(*getQuote, pathMsg, *price, OperatorPayment::GetPaymentInfo(), pasId);
 	ComMsg::SignedQuote signedQuote = ComMsg::SignedQuote::SignQuote(quote, gs_state);
 
-	tls.SendMsg(connection, signedQuote.ToString());
+	tls.SendContainer(cnt, signedQuote.ToString());
 
 }
 
@@ -131,11 +132,13 @@ extern "C" int ecall_ride_share_tp_from_pas(void* const connection)
 
 	try
 	{
-		std::shared_ptr<TlsConfigClient> tlsCfg = std::make_shared<TlsConfigClient>(gs_state, TlsConfig::Mode::ServerVerifyPeer, AppNames::sk_passengerMgm);
-		TlsCommLayer tls(connection, tlsCfg, true);
+		EnclaveCntTranslator cnt(connection);
+
+		std::shared_ptr<TlsConfigClient> tlsCfg = std::make_shared<TlsConfigClient>(gs_state, TlsConfigClient::Mode::ServerVerifyPeer, AppNames::sk_passengerMgm, nullptr);
+		TlsCommLayer tls(cnt, tlsCfg, true, nullptr);
 
 		NumType funcNum;
-		tls.ReceiveStruct(connection, funcNum);
+		tls.RecvStruct(cnt, funcNum);
 
 		switch (funcNum)
 		{

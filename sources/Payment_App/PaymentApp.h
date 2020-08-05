@@ -11,9 +11,9 @@ namespace RideShare
 
 		virtual ~PaymentApp() {}
 
-		virtual bool ProcessMsgFromTripMatcher(Decent::Net::Connection& connection);
+		virtual bool ProcessMsgFromTripMatcher(Decent::Net::ConnectionBase& connection);
 
-		virtual bool ProcessSmartMessage(const std::string& category, const Json::Value& jsonMsg, Decent::Net::Connection& connection) override;
+		virtual bool ProcessSmartMessage(const std::string& category, Decent::Net::ConnectionBase& connection, Decent::Net::ConnectionBase*& freeHeldCnt) override;
 
 	};
 }

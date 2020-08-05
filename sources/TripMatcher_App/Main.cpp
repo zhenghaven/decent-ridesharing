@@ -3,32 +3,36 @@
 #include <iostream>
 
 #include <tclap/CmdLine.h>
+#include <boost/filesystem.hpp>
+
 #include <sgx_quote.h>
 
 #include <DecentApi/CommonApp/Common.h>
 
-#include <DecentApi/CommonApp/Net/SmartMessages.h>
-#include <DecentApi/CommonApp/Net/TCPConnection.h>
-#include <DecentApi/CommonApp/Net/TCPServer.h>
 #include <DecentApi/CommonApp/Net/SmartServer.h>
-#include <DecentApi/CommonApp/Ra/Messages.h>
-#include <DecentApi/CommonApp/Tools/ConfigManager.h>
+#include <DecentApi/CommonApp/Net/TCPServer.h>
+#include <DecentApi/CommonApp/Net/TCPConnection.h>
+#include <DecentApi/CommonApp/Tools/DiskFile.h>
+#include <DecentApi/CommonApp/Tools/FileSystemUtil.h>
+#include <DecentApi/CommonApp/Threading/MainThreadAsynWorker.h>
 
 #include <DecentApi/Common/Common.h>
+#include <DecentApi/Common/MbedTls/Initializer.h>
+#include <DecentApi/Common/Ra/RequestCategory.h>
 #include <DecentApi/Common/Ra/WhiteList/WhiteList.h>
 
+#include <DecentApi/DecentAppApp/DecentAppConfig.h>
+
 #include "../Common/AppNames.h"
-#include "../Common_App/Tools.h"
 #include "../Common_App/ConnectionManager.h"
-#include "../Common_App/RideSharingMessages.h"
 
 #include "TripMatcherApp.h"
 
 using namespace RideShare;
-using namespace RideShare::Tools;
 using namespace Decent;
+using namespace Decent::Net;
 using namespace Decent::Tools;
-using namespace Decent::Ra::Message;
+using namespace Decent::AppConfig;
 
 /**
  * \brief	Main entry-point for this application
@@ -40,6 +44,14 @@ using namespace Decent::Ra::Message;
  */
 int main(int argc, char ** argv)
 {
+	auto mbedInit = Decent::MbedTlsObj::Initializer::Init();
+
+	//------- Construct main thread worker at very first:
+	std::shared_ptr<Threading::MainThreadAsynWorker> mainThreadWorker = std::make_shared<Threading::MainThreadAsynWorker>();
+
+	//------- Setup Smart Server:
+	Net::SmartServer smartServer(mainThreadWorker);
+
 	std::cout << "================ Trip Matcher ================" << std::endl;
 
 	TCLAP::CmdLine cmd("Trip Matcher", ' ', "ver", true);
@@ -53,35 +65,110 @@ int main(int argc, char ** argv)
 
 	cmd.parse(argc, argv);
 
-	std::string configJsonStr;
-	if (!GetConfigurationJsonString(configPathArg.getValue(), configJsonStr))
+	const size_t numListenThread = 5;
+
+	//------- Read configuration file:
+	std::unique_ptr<DecentAppConfig> configMgr;
+	try
 	{
-		PRINT_W("Failed to load configuration file.");
+		std::string configJsonStr;
+		DiskFile file(configPathArg.getValue(), FileBase::Mode::Read, true);
+		configJsonStr.resize(file.GetFileSize());
+		file.ReadBlockExactSize(configJsonStr);
+
+		configMgr = std::make_unique<DecentAppConfig>(configJsonStr);
+	}
+	catch (const std::exception& e)
+	{
+		PRINT_W("Failed to load configuration file. Error Msg: %s", e.what());
 		return -1;
 	}
-	ConfigManager configManager(configJsonStr);
-	ConnectionManager::SetConfigManager(configManager);
 
-	const ConfigItem& decentServerItem = configManager.GetItem(Ra::WhiteList::sk_nameDecentServer);
-	const ConfigItem& tripMatcherItem = configManager.GetItem(AppNames::sk_tripMatcher);
-
-	uint32_t serverIp = Net::TCPConnection::GetIpAddressFromStr(decentServerItem.GetAddr());
-	std::unique_ptr<Net::Connection> serverCon;
-
-	if (isSendWlArg.getValue())
+	//------- Read Decent Server Configuration:
+	uint32_t serverIp = 0;
+	uint16_t serverPort = 0;
+	try
 	{
-		serverCon = std::make_unique<Net::TCPConnection>(serverIp, decentServerItem.GetPort());
-		serverCon->SendPack(LoadWhiteList(wlKeyArg.getValue(), configManager.GetLoadedWhiteListStr()));
+		const auto& decentServerConfig = configMgr->GetEnclaveList().GetItem(Ra::WhiteList::sk_nameDecentServer);
+
+		serverIp = Net::TCPConnection::GetIpAddressFromStr(decentServerConfig.GetAddr());
+		serverPort = decentServerConfig.GetPort();
+	}
+	catch (const std::exception& e)
+	{
+		PRINT_W("Failed to read Decent Server configuration. Error Msg: %s", e.what());
+		return -1;
 	}
 
-	serverCon = std::make_unique<Net::TCPConnection>(serverIp, decentServerItem.GetPort());
+	//------- Read self configuration:
+	uint32_t selfIp = 0;
+	uint16_t selfPort = 0;
+	uint64_t selfFullAddr = 0;
+	std::string selfAddr;
+	try
+	{
+		const auto& selfItem = configMgr->GetEnclaveList().GetItem(AppNames::sk_tripMatcher);
 
+		selfAddr = selfItem.GetAddr();
+		selfIp = TCPConnection::GetIpAddressFromStr(selfItem.GetAddr());
+		selfPort = selfItem.GetPort();
+
+		selfFullAddr = TCPConnection::CombineIpAndPort(selfIp, selfPort);
+	}
+	catch (const std::exception& e)
+	{
+		PRINT_W("Failed to read self configuration. Error Msg: %s", e.what());
+		return -1;
+	}
+
+	//------- Setup connection manager:
+	ConnectionManager::SetEnclaveList(configMgr->GetEnclaveList());
+
+	std::unique_ptr<Net::ConnectionBase> serverCon;
+	//------- Send loaded white list to Decent Server when needed.
+	try
+	{
+		if (isSendWlArg.getValue())
+		{
+			serverCon = std::make_unique<TCPConnection>(serverIp, serverPort);
+			serverCon->SendContainer(Ra::RequestCategory::sk_loadWhiteList);
+			serverCon->SendContainer(wlKeyArg.getValue());
+			serverCon->SendContainer(configMgr->GetEnclaveList().GetLoadedWhiteListStr());
+			char ackMsg[] = "ACK";
+			serverCon->RecvRawAll(&ackMsg, sizeof(ackMsg));
+		}
+	}
+	catch (const std::exception& e)
+	{
+		PRINT_W("Failed to send loaded white list to Decent Server. Error Msg: %s", e.what());
+		return -1;
+	}
+
+	//------- Setup TCP server:
+	std::unique_ptr<Server> server;
+	try
+	{
+		server = std::make_unique<Net::TCPServer>(selfIp, selfPort);
+	}
+	catch (const std::exception& e)
+	{
+		PRINT_W("Failed to start TCP server. Error Message: %s", e.what());
+		return -1;
+	}
+
+	//------- Setup Enclave:
 	std::shared_ptr<TripMatcher> enclave;
 	try
 	{
+		serverCon = std::make_unique<TCPConnection>(serverIp, serverPort);
+
+		boost::filesystem::path tokenPath = GetKnownFolderPath(KnownFolderType::LocalAppDataEnclave).append(TOKEN_FILENAME);
+
 		enclave = std::make_shared<TripMatcher>(
-			ENCLAVE_FILENAME, KnownFolderType::LocalAppDataEnclave, TOKEN_FILENAME, wlKeyArg.getValue(), *serverCon, 
-			"TripMatcher Pay Info" + tripMatcherItem.GetAddr() + std::to_string(tripMatcherItem.GetPort()));
+			ENCLAVE_FILENAME, tokenPath, wlKeyArg.getValue(), *serverCon,
+			"TripMatcher Pay Info" + selfAddr + ":" + std::to_string(selfPort));
+
+		smartServer.AddServer(server, enclave, nullptr, numListenThread, 0);
 	}
 	catch (const std::exception& e)
 	{
@@ -89,14 +176,12 @@ int main(int argc, char ** argv)
 		return -1;
 	}
 
+	//------- keep running until an interrupt signal (Ctrl + C) is received.
+	mainThreadWorker->UpdateUntilInterrupt();
 
-	Net::SmartServer smartServer;
-
-	std::unique_ptr<Net::Server> server(std::make_unique<Net::TCPServer>(tripMatcherItem.GetAddr(), tripMatcherItem.GetPort()));
-
-	smartServer.AddServer(server, enclave);
-	smartServer.RunUtilUserTerminate();
-
+	//------- Exit...
+	enclave.reset();
+	smartServer.Terminate();
 
 	PRINT_I("Exit.");
 	return 0;

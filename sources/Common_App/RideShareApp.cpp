@@ -10,20 +10,36 @@ using namespace Decent::Net;
 
 extern "C" sgx_status_t ecall_ride_share_init(sgx_enclave_id_t eid, const char* pay_info);
 
-RideShareApp::RideShareApp(const std::string & enclavePath, const std::string & tokenPath, const std::string & wListKey, Connection & serverConn, const std::string& opPayInfo) :
+RideShareApp::RideShareApp(const std::string& enclavePath, const std::string& tokenPath, const std::string& wListKey, Decent::Net::ConnectionBase& serverConn, const std::string& opPayInfo) :
 	Decent::RaSgx::DecentApp(enclavePath, tokenPath, wListKey, serverConn)
 {
 	InitEnclave(opPayInfo);
 }
 
-RideShareApp::RideShareApp(const fs::path & enclavePath, const fs::path & tokenPath, const std::string & wListKey, Connection & serverConn, const std::string& opPayInfo) :
+RideShareApp::RideShareApp(const fs::path& enclavePath, const fs::path& tokenPath, const std::string& wListKey, Decent::Net::ConnectionBase& serverConn, const std::string& opPayInfo) :
 	Decent::RaSgx::DecentApp(enclavePath, tokenPath, wListKey, serverConn)
 {
 	InitEnclave(opPayInfo);
 }
 
-RideShareApp::RideShareApp(const std::string & enclavePath, const Decent::Tools::KnownFolderType tokenLocType, const std::string & tokenFileName, const std::string & wListKey, Connection & serverConn, const std::string& opPayInfo) :
-	Decent::RaSgx::DecentApp(enclavePath, tokenLocType, tokenFileName, wListKey, serverConn)
+RideShareApp::RideShareApp(const std::string& enclavePath, const std::string& tokenPath,
+	const size_t numTWorker, const size_t numUWorker, const size_t retryFallback, const size_t retrySleep,
+	const std::string& wListKey, Decent::Net::ConnectionBase& serverConn,
+	const std::string& opPayInfo) :
+	Decent::RaSgx::DecentApp(enclavePath, tokenPath, 
+		numTWorker, numUWorker, retryFallback, retrySleep, 
+		wListKey, serverConn)
+{
+	InitEnclave(opPayInfo);
+}
+
+RideShareApp::RideShareApp(const fs::path& enclavePath, const fs::path& tokenPath,
+	const size_t numTWorker, const size_t numUWorker, const size_t retryFallback, const size_t retrySleep,
+	const std::string& wListKey, Decent::Net::ConnectionBase& serverConn,
+	const std::string& opPayInfo) :
+	Decent::RaSgx::DecentApp(enclavePath, tokenPath, 
+		numTWorker, numUWorker, retryFallback, retrySleep, 
+		wListKey, serverConn)
 {
 	InitEnclave(opPayInfo);
 }

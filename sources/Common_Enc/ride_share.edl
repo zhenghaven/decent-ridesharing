@@ -2,7 +2,7 @@ enclave
 {
 	include "sgx_key_exchange.h"
 	include "sgx_trts.h"
-	
+
 	from "sgx_ra_client.edl" import *;
 	from "sgx_ra_sp.edl" import *;
 	from "decent_tools.edl" import *;

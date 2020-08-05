@@ -6,7 +6,3 @@
 	path = libs/decent-ra-api
 	url = git@github.com:zhenghaven/decent-ra-api.git
 	branch = master
-[submodule "hunter"]
-	path = hunter
-	url = https://github.com/zhenghaven/hunter.git
-	branch = master

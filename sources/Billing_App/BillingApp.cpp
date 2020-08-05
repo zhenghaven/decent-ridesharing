@@ -2,13 +2,13 @@
 
 #include <DecentApi/Common/SGX/RuntimeError.h>
 
-#include "../Common_App/RideSharingMessages.h"
+#include "../Common_App/RequestCategory.h"
 
 #include "Enclave_u.h"
 
 using namespace RideShare;
 
-bool Billing::ProcessMsgFromTripPlanner(Decent::Net::Connection & connection)
+bool Billing::ProcessMsgFromTripPlanner(Decent::Net::ConnectionBase& connection)
 {
 	int retValue = false;
 	sgx_status_t enclaveRet = SGX_SUCCESS;
@@ -19,14 +19,14 @@ bool Billing::ProcessMsgFromTripPlanner(Decent::Net::Connection & connection)
 	return retValue;
 }
 
-bool Billing::ProcessSmartMessage(const std::string & category, const Json::Value & jsonMsg, Decent::Net::Connection & connection)
+bool Billing::ProcessSmartMessage(const std::string& category, Decent::Net::ConnectionBase& connection, Decent::Net::ConnectionBase*& freeHeldCnt)
 {
-	if (category == FromTripPlaner::sk_ValueCat)
+	if (category == RequestCategory::sk_fromTripPlaner)
 	{
 		return ProcessMsgFromTripPlanner(connection);
 	}
 	else
 	{
-		return Decent::RaSgx::DecentApp::ProcessSmartMessage(category, jsonMsg, connection);
+		return RideShareApp::ProcessSmartMessage(category, connection, freeHeldCnt);
 	}
 }

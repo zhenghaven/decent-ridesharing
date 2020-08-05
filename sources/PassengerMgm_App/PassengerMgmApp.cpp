@@ -2,13 +2,13 @@
 
 #include <DecentApi/Common/SGX/RuntimeError.h>
 
-#include "../Common_App/RideSharingMessages.h"
+#include "../Common_App/RequestCategory.h"
 
 #include "Enclave_u.h"
 
 using namespace RideShare;
 
-bool PassengerMgm::ProcessMsgFromPassenger(Decent::Net::Connection & connection)
+bool PassengerMgm::ProcessMsgFromPassenger(Decent::Net::ConnectionBase& connection)
 {
 	int retValue = false;
 	sgx_status_t enclaveRet = SGX_SUCCESS;
@@ -19,7 +19,7 @@ bool PassengerMgm::ProcessMsgFromPassenger(Decent::Net::Connection & connection)
 	return retValue;
 }
 
-bool PassengerMgm::ProcessMsgFromTripPlanner(Decent::Net::Connection & connection)
+bool PassengerMgm::ProcessMsgFromTripPlanner(Decent::Net::ConnectionBase& connection)
 {
 	int retValue = false;
 	sgx_status_t enclaveRet = SGX_SUCCESS;
@@ -30,7 +30,7 @@ bool PassengerMgm::ProcessMsgFromTripPlanner(Decent::Net::Connection & connectio
 	return retValue;
 }
 
-bool PassengerMgm::ProcessMsgFromPayment(Decent::Net::Connection & connection)
+bool PassengerMgm::ProcessMsgFromPayment(Decent::Net::ConnectionBase& connection)
 {
 	int retValue = false;
 	sgx_status_t enclaveRet = SGX_SUCCESS;
@@ -41,22 +41,22 @@ bool PassengerMgm::ProcessMsgFromPayment(Decent::Net::Connection & connection)
 	return retValue;
 }
 
-bool PassengerMgm::ProcessSmartMessage(const std::string & category, const Json::Value & jsonMsg, Decent::Net::Connection & connection)
+bool PassengerMgm::ProcessSmartMessage(const std::string& category, Decent::Net::ConnectionBase& connection, Decent::Net::ConnectionBase*& freeHeldCnt)
 {
-	if (category == FromPassenger::sk_ValueCat)
+	if (category == RequestCategory::sk_fromPassenger)
 	{
 		return ProcessMsgFromPassenger(connection);
 	}
-	else if (category == FromTripPlaner::sk_ValueCat)
+	else if (category == RequestCategory::sk_fromTripPlaner)
 	{
 		return ProcessMsgFromTripPlanner(connection);
 	}
-	else if (category == FromPayment::sk_ValueCat)
+	else if (category == RequestCategory::sk_fromPayment)
 	{
 		return ProcessMsgFromPayment(connection);
 	}
 	else
 	{
-		return Decent::RaSgx::DecentApp::ProcessSmartMessage(category, jsonMsg, connection);
+		return RideShareApp::ProcessSmartMessage(category, connection, freeHeldCnt);
 	}
 }

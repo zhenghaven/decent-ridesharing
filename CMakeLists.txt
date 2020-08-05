@@ -4,57 +4,43 @@ cmake_minimum_required(VERSION 3.11)
 #   Options for Decent Ride Sharing Project
 #==========================================================
 
-set(Enc_Proj_Name_List PassengerMgm TripPlaner DriverMgm TripMatcher Billing Payment)
+#Enclave project list:
+set(ENCLAVE_PROJECT_LIST PassengerMgm TripPlaner DriverMgm TripMatcher Billing Payment)
+set(ENCLAVE_PLATFORM_SGX_PROJECT_LIST PassengerMgm TripPlaner DriverMgm TripMatcher Billing Payment)
+set(ENCLAVE_PLATFORM_NON_ENCLAVE_PROJECT_LIST)
+
+#Client project list:
+set(CLIENT_PROJECT_LIST Passenger Driver)
+
 set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 
-set(HUNTER_BOOST_RUNTIME_STATIC ON CACHE BOOL "Switch for using boost runtime static linking." FORCE)
-
 if(APPLE)
-	message(FATAL_ERROR "Mac OS is not supported for now.")
-endif()
-#==========================================================
-#   Setup Hunter
-#==========================================================
-
-set(gate_dir "${CMAKE_CURRENT_LIST_DIR}/hunter/gate")
-set(gate_module "${gate_dir}/cmake/HunterGate.cmake")
-set(HUNTER_KEEP_PACKAGE_SOURCES ON)
-
-get_filename_component(gate_module "${gate_module}" ABSOLUTE)
-
-if(NOT EXISTS "${gate_module}")
-	message(FATAL_ERROR "${gate_module} module not found!")
+	message(WARNING "Mac OS is not supported by Intel SGX for now. Trying to setup in simulation mode...")
+	set(CMAKE_BUILD_TYPE DebugSimulation)
 endif()
 
-message(STATUS "Including HunterGate: ${gate_module}")
-include("${gate_module}")
+if(NOT EXISTS ${CMAKE_CURRENT_LIST_DIR}/libs/decent-ra-api/cmake)
+	message(FATAL_ERROR "Cannot find Decent RA API module. Please make sure it has been checked out.")
+endif()
 
-get_filename_component(HUNTER_ROOT "${CMAKE_CURRENT_LIST_DIR}/hunter" ABSOLUTE)
-HunterGate(URL "x" SHA1 "xxxxxxxx" FILEPATH ${CMAKE_CURRENT_LIST_DIR}/HunterConfig.cmake)
+list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_LIST_DIR}/libs/decent-ra-api/cmake)
 
 #==========================================================
 #   Start Decent Ride Sharing Project
 #==========================================================
-project(DecentRidesharing)
-
-#==========================================================
-#   Add Hunter Libraries
-#==========================================================
-set(BUILD_SHARED_LIBS OFF)
-set(BUILD_STATIC_LIBS ON)
-set(USE_MSVC_RUNTIME_LIBRARY_DLL OFF)
-
-hunter_add_package(Boost COMPONENTS filesystem)
-hunter_add_package(OpenSSL)
-
-set(Boost_USE_STATIC_LIBS ON)
-set(Boost_USE_STATIC_RUNTIME ${HUNTER_BOOST_RUNTIME_STATIC})
-set(Boost_NO_SYSTEM_PATHS ON)
-find_package(Boost CONFIG REQUIRED system filesystem)
+project(DecentRide)
 
 #==========================================================
 #   Setup options
 #==========================================================
+
+set(BUILD_SHARED_LIBS OFF)
+set(BUILD_STATIC_LIBS ON)
+set(USE_MSVC_RUNTIME_LIBRARY_DLL OFF)
+
+set(Boost_USE_STATIC_LIBS ON)
+set(Boost_USE_STATIC_RUNTIME ON)
+set(Boost_NO_SYSTEM_PATHS ON)
 
 if (WIN32)
 	macro(get_WIN32_WINNT version)
@@ -82,7 +68,7 @@ if (WIN32)
 endif(WIN32)
 
 if(MSVC)
-	set(COMMON_OPTIONS /W3 /wd4996 /we4239 /we4002 /we4700 /we4305 /EHsc /MP)
+	set(COMMON_OPTIONS /W3 /wd4996 /we4239 /we4002 /we4700 /we4305 /EHsc /MP /d2FH4-)
 	set(DEBUG_OPTIONS /MTd /Od /Zi /DDEBUG)
 	set(SIMULATE_OPTIONS /DSIMULATING_ENCLAVE)
 	set(RELEASE_OPTIONS /MT /Ox /Oi /Ob2 /fp:fast /GR- /DEDEBUG)# /DNDEBUG
@@ -179,9 +165,6 @@ message(STATUS "")
 #   Add submodules
 #==========================================================
 
-#Intel SGX SDK
-include(${CMAKE_CURRENT_LIST_DIR}/libs/decent-ra-api/cmake/FindSgxSdk.cmake)
-
 ##Header only libraries
 set(TCLAP_INCLUDE_DIR ${CMAKE_CURRENT_LIST_DIR}/libs/tclap/include)
 
@@ -189,6 +172,12 @@ set(TCLAP_INCLUDE_DIR ${CMAKE_CURRENT_LIST_DIR}/libs/tclap/include)
 # set(DECENT_API_DECENT_SERVER ON CACHE BOOL "Add decent server module." FORCE)
 set(DECENT_API_DECENT_APP ON CACHE BOOL "Add decent app module." FORCE)
 add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/libs/decent-ra-api)
+
+#Intel SGX SDK
+include(EnclavePlatformSgx)
+
+#Non-Enclave
+include(EnclavePlatformNonEnclave)
 
 #==========================================================
 #   Add files
@@ -210,7 +199,7 @@ set(SOURCEDIR_Common_Enc ${SOURCEDIR}/Common_Enc)
 file(GLOB_RECURSE SOURCES_Common_Enc ${SOURCEDIR_Common_Enc}/*.[ch]*)
 file(GLOB_RECURSE SOURCES_Common_EDL ${SOURCEDIR_Common_Enc}/*.edl)
 
-foreach(Proj_Name IN ITEMS ${Enc_Proj_Name_List})
+foreach(Proj_Name IN ITEMS ${ENCLAVE_PROJECT_LIST})
 	
 	# Enclave Project Files:
 	set(SOURCEDIR_${Proj_Name}_App ${SOURCEDIR}/${Proj_Name}_App)
@@ -221,13 +210,13 @@ foreach(Proj_Name IN ITEMS ${Enc_Proj_Name_List})
 	
 endforeach()
 
-# Passenger Files:
-set(SOURCEDIR_Passenger ${SOURCEDIR}/Passenger)
-file(GLOB_RECURSE SOURCES_Passenger ${SOURCEDIR_Passenger}/*.[ch]*)
-
-# Driver Files:
-set(SOURCEDIR_Driver ${SOURCEDIR}/Driver)
-file(GLOB_RECURSE SOURCES_Driver ${SOURCEDIR_Driver}/*.[ch]*)
+foreach(Proj_Name IN ITEMS ${CLIENT_PROJECT_LIST})
+	
+	# Client Project Files:
+	set(SOURCEDIR_${Proj_Name} ${SOURCEDIR}/${Proj_Name})
+	file(GLOB_RECURSE SOURCES_${Proj_Name} ${SOURCEDIR_${Proj_Name}}/*.[ch]*)
+	
+endforeach()
 
 
 #==========================================================
@@ -252,140 +241,37 @@ else()
 	set(GROUP_FLAG_END -Wl,--end-group)
 endif()
 
-if(MSVC)
-	set(Enclave_Prog_Prefix )
-	set(Enclave_Prog_Postfix dll)
-	set(Enclave_Bin_Path "${CMAKE_BINARY_DIR}/$<CONFIG>")
-else()
-	set(Enclave_Prog_Prefix ${CMAKE_SHARED_LIBRARY_PREFIX})
-	set(Enclave_Prog_Postfix so)
-	set(Enclave_Bin_Path "${CMAKE_BINARY_DIR}")
-endif()
-
 #==========================================================
 #   Enclave Projects
 #==========================================================
 
-foreach(Proj_Name IN ITEMS ${Enc_Proj_Name_List})
+foreach(Proj_Name IN ITEMS ${ENCLAVE_PROJECT_LIST})
 
-	###########################################################
-	### EDL
-	###########################################################
+	if(${Proj_Name} IN_LIST ENCLAVE_PLATFORM_SGX_PROJECT_LIST)
 	
-	set(EDL_T_SRC_OUTPUT ${SOURCEDIR_${Proj_Name}_Enc}/Enclave_t.h ${SOURCEDIR_${Proj_Name}_Enc}/Enclave_t.c)
-	set(EDL_U_SRC_OUTPUT ${SOURCEDIR_${Proj_Name}_App}/Enclave_u.h ${SOURCEDIR_${Proj_Name}_App}/Enclave_u.c)
-
-	add_custom_command(OUTPUT ${EDL_T_SRC_OUTPUT}
-		COMMAND "${INTEL_SGX_EDGER_PATH}"  
-		--trusted "${SOURCEDIR_${Proj_Name}_Enc}/Enclave.edl" 
-		--search-path "${SOURCEDIR_Common_Enc}" 
-		--search-path "${SOURCEDIR_${Proj_Name}_Enc}" 
-		--search-path "${DECENT_API_EDL_DIR}" 
-		--search-path "${INTEL_SGX_SDK_INCLUDE_DIR}"
-		WORKING_DIRECTORY "${SOURCEDIR_${Proj_Name}_Enc}"
-		DEPENDS "${SOURCEDIR_${Proj_Name}_Enc}/Enclave.edl"
-		COMMENT "Processing EDL for enclave..."
-	)
-
-	add_custom_command(OUTPUT ${EDL_U_SRC_OUTPUT}
-		COMMAND "${INTEL_SGX_EDGER_PATH}"  
-		--untrusted "${SOURCEDIR_${Proj_Name}_Enc}/Enclave.edl" 
-		--search-path "${SOURCEDIR_Common_Enc}" 
-		--search-path "${SOURCEDIR_${Proj_Name}_Enc}" 
-		--search-path "${DECENT_API_EDL_DIR}" 
-		--search-path "${INTEL_SGX_SDK_INCLUDE_DIR}"
-		WORKING_DIRECTORY "${SOURCEDIR_${Proj_Name}_App}"
-		DEPENDS "${SOURCEDIR_${Proj_Name}_Enc}/Enclave.edl"
-		COMMENT "Processing EDL for app..."
-	)
-
-	add_custom_target(${Proj_Name}_EDL DEPENDS ${EDL_T_SRC_OUTPUT} ${EDL_U_SRC_OUTPUT})
-	set_target_properties(${Proj_Name}_EDL PROPERTIES FOLDER "${Proj_Name}")
-
-	###########################################################
-	### Enclave
-	###########################################################
-
-	set(${Proj_Name}_Enclave_File "${Enclave_Prog_Prefix}${Proj_Name}_Enclave.signed.${Enclave_Prog_Postfix}")
-	set(${Proj_Name}_Enclave_Lib "${Enclave_Prog_Prefix}${Proj_Name}_Enclave$<$<CONFIG:Debug>:${CMAKE_DEBUG_POSTFIX}>.${Enclave_Prog_Postfix}")
-
-	add_library(${Proj_Name}_Enclave SHARED ${SOURCES_Common} ${SOURCES_Common_EDL} ${SOURCES_Common_Enc} ${SOURCES_${Proj_Name}_Enc} ${SOURCES_${Proj_Name}_EDL})
-	#defines:
-	target_compile_definitions(${Proj_Name}_Enclave PRIVATE ${COMMON_ENCLAVE_DEFINES})
-	#compiler flags:
-	target_compile_options(${Proj_Name}_Enclave PRIVATE ${INTEL_SGX_SDK_C_FLAGS} $<$<COMPILE_LANGUAGE:CXX>:${INTEL_SGX_SDK_CXX_FLAGS} ${COMMON_ENCLAVE_CXX_OPTIONS}>)
-	#linker flags:
-	set_target_properties(${Proj_Name}_Enclave PROPERTIES LINK_FLAGS "${ENCLAVE_LINKER_OPTIONS} ${INTEL_SGX_SDK_LINKER_FLAGS_T}")
-	set_target_properties(${Proj_Name}_Enclave PROPERTIES FOLDER "${Proj_Name}")
-
-	add_custom_command(TARGET ${Proj_Name}_Enclave
-		POST_BUILD
-		COMMAND "${INTEL_SGX_SIGNER_PATH}" sign 
-		-key "${CMAKE_CURRENT_LIST_DIR}/Enclave_private.pem" 
-		-enclave "${Enclave_Bin_Path}/${${Proj_Name}_Enclave_Lib}" 
-		-out "${CMAKE_BINARY_DIR}/${${Proj_Name}_Enclave_File}" 
-		-config "${SOURCEDIR_${Proj_Name}_Enc}/Enclave.config.xml"
-	)
-
-	target_link_libraries(${Proj_Name}_Enclave 
-		${WHOLE_ARCHIVE_FLAG_BEGIN} 
-		IntelSGX::SDK_Trusted_Whole_lib 
-		${WHOLE_ARCHIVE_FLAG_END}
-		${GROUP_FLAG_BEGIN}
-		IntelSGX::SDK_Trusted_stdc 
-		IntelSGX::SDK_Trusted_cxx 
-		IntelSGX::SDK_Trusted_service 
-		IntelSGX::SDK_Trusted_key_exchange 
-		IntelSGX::SDK_Trusted_crypto 
-		DecentRa_App_Enclave 
-		mbedcrypto_enclave 
-		mbedx509_enclave 
-		mbedtls_enclave 
-		${GROUP_FLAG_END}
-	)
-
-	add_dependencies(${Proj_Name}_Enclave ${Proj_Name}_EDL)
-
-	###########################################################
-	### App
-	###########################################################
-
-	add_executable(${Proj_Name}_App ${SOURCES_Common} ${SOURCES_Common_EDL} ${SOURCES_Common_App} ${SOURCES_${Proj_Name}_App} ${SOURCES_${Proj_Name}_EDL})
-	#includes:
-	target_include_directories(${Proj_Name}_App PRIVATE ${TCLAP_INCLUDE_DIR})
-	#defines:
-	target_compile_definitions(${Proj_Name}_App PRIVATE ${COMMON_APP_DEFINES} ENCLAVE_FILENAME="${${Proj_Name}_Enclave_File}" TOKEN_FILENAME="${Proj_Name}_Enclave.token")
-	#linker flags:
-	set_target_properties(${Proj_Name}_App PROPERTIES LINK_FLAGS_DEBUG "${APP_DEBUG_LINKER_OPTIONS}")
-	set_target_properties(${Proj_Name}_App PROPERTIES LINK_FLAGS_DEBUGSIMULATION "${APP_DEBUG_LINKER_OPTIONS}")
-	set_target_properties(${Proj_Name}_App PROPERTIES LINK_FLAGS_RELEASE "${APP_RELEASE_LINKER_OPTIONS}")
-	set_target_properties(${Proj_Name}_App PROPERTIES FOLDER "${Proj_Name}")
-
-	target_link_libraries(${Proj_Name}_App 
-		${COMMON_STANDARD_LIBRARIES} 
-		IntelSGX::SDK_Untrusted
-		DecentRa_App_App 
-		jsoncpp_lib_static 
-		mbedcrypto 
-		mbedx509 
-		mbedtls 
-		Boost::filesystem
-		Boost::system
-		${Additional_Sys_Lib}
-	)
-
-	add_dependencies(${Proj_Name}_App ${Proj_Name}_Enclave)
+		setup_sgx_edl_project(${Proj_Name})
+		setup_sgx_enclave_project(${Proj_Name})
+		setup_sgx_app_project(${Proj_Name})
 	
+	elseif(${Proj_Name} IN_LIST ENCLAVE_PLATFORM_NON_ENCLAVE_PROJECT_LIST)
+	
+		setup_non_enclave_enclave_project(${Proj_Name})
+		setup_non_enclave_app_project(${Proj_Name})
+	
+	else()
+	
+		message(WARNING "The enclave project, ${Proj_Name}, has not been specified a enclave platform type. It will not be added to the solution.")
+	
+	endif()
+
 endforeach()
-
 
 #==========================================================
 #   Client Apps
 #==========================================================
 
-set(Nor_Proj_Name_List Passenger Driver)
 
-foreach(Proj_Name IN ITEMS ${Nor_Proj_Name_List})
+foreach(Proj_Name IN ITEMS ${CLIENT_PROJECT_LIST})
 
 	add_executable(${Proj_Name} ${SOURCES_Common} ${SOURCES_Common_App} ${SOURCES_${Proj_Name}})
 	#includes:
